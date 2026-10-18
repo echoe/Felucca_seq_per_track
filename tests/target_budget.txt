@@ -3,6 +3,7 @@
 # Rewritten by BUDGET_UPDATE=1.
 analog_render 585
 phase_render 79
+phase_render_f 102
 lofi_render 123
 sample_render 126
 formant_render 314

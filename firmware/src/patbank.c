@@ -20,7 +20,6 @@
 #define PB_NSTORE 5u
 #define PB_LIVE 4u                       /* the live music's store */
 #define PB_HDR 8u
-#define PB_KEY0 19u                      /* SEQ held: C5 .. G5, the eight rightmost keys, are sequences 1..8 */
 #define PB_META_O 5u
 #define PB_OBJ_MAX ST_PAYLOAD_MAX
 typedef struct { uint8_t count, on; motion_event_t ev[PB_MO_MAX]; } pb_mo_t;
@@ -48,7 +47,7 @@ static void pb_pack_step(uint8_t *b, const step_t *s)
     b[5] = (uint8_t)((s->vel > 127u ? 127u : s->vel) | (r & 1u) << 7);
     b[6] = s->hit;
     b[7] = s->acc & s->hit;
-    b[8] = (uint8_t)((s->probability > 101u ? 101u : s->probability) | (r >> 1) << 7);
+    b[8] = (uint8_t)((s->probability >= COND_FIRST + NCOND ? 101u : s->probability) | (r >> 1) << 7);   /* (1.5.5: 102.. a condition) */
 }
 static int pb_unpack_step(step_t *s, const uint8_t *b)
 {
@@ -66,7 +65,7 @@ static int pb_unpack_step(step_t *s, const uint8_t *b)
     s->acc = b[7];
     s->probability = b[8] & 127u;
     meta |= (uint32_t)(b[8] & 128u) << 2;
-    if ((meta & 255u) > 127u || s->n > 4u || s->time > ST_REST || s->probability > 101u || (s->acc & ~s->hit))
+    if ((meta & 255u) > 127u || s->n > 4u || s->time > ST_REST || s->probability >= COND_FIRST + NCOND || (s->acc & ~s->hit))
         return 0;
     step_set_ratchet(s, (meta >> 8) + 1u);
     step_set_nudge(s, (int32_t)(nd ^ 8u) - 8);
