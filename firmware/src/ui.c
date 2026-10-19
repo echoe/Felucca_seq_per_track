@@ -74,8 +74,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
  * ui_input.c seq_entry). 1.5: bit 3 SYSTEM > HELP ON (Discussion #156, ui_help.c). 1.5.5: bit 4 CONTROL > SELECT PAGE
  * (Discussion #188, ui_input.c: SELECT steps the pages; 0 = BPM, as before); bit 5 MIDI > SCREEN WAKE PANEL (scr_input:
  * only the panel wakes SCREEN OFF, as up to 1.5.1; 0, every older setting, = +MIDI, the default: a note-on too).
- * 1.5.6: bit 6 SELECT's second bit (#84: sel_mode). 1.6_sequences: bit 7 SYSTEM > SEQ SWITCH END (patbank.c: a sequence
- * chosen while playing starts at the end of the one playing; 0 = NOW) */
+ * 1.5.6: bit 6 SELECT's second bit (#84: sel_mode). 1.6.1: bit 7 SYSTEM > 2ND CORE ON (BETA) */
 #define ui_prefs2 (favorites.factory[15][24])
 #define PREF_X 0xFF0000u                       /* (menu_items.c MENU_FLAGS: a bit of ui_prefs2, << 16) */
 #define PREF_SCOPE_MIX (0x01u << 16)
@@ -85,12 +84,22 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 #define PREF_SEL_PAGE (0x10u << 16)
 #define PREF_WAKE_PANEL (0x20u << 16)
 #define PREF_SEL_HI (0x40u << 16)
+#define PREF_CPU2_ON (0x80u << 16)              /* MENU > SYSTEM > 2ND CORE ON (BETA): the second core from the next
+                                                 * power-on (main.c); clear = OFF, one core as 1.6 (every older setting:
+                                                 * 1.6 never set bit 7). It turns itself OFF when core 1 misreads
+                                                 * (hal/fm1_cpu1.h). (The 1.6.1 dual-core beta build had it the other
+                                                 * way round, 0 AUTO / 1 OFF) */
 /* MENU > CONTROL > SELECT: 0 BPM, 1 PAGE (1.5.5, #188), 2 MODW, 3 VEL (1.5.6, #84: ui_input.c sel_play), bit 4 and bit 6 of
  * ui_prefs2 (0 in every older setting = BPM; 1.5.5's PAGE keeps its bit; firmware before 1.5.6 reads MODW as BPM and
  * VEL as PAGE (its bit 4), before 1.5.5 both as BPM) */
 enum { SEL_BPM, SEL_PAGE, SEL_MODW, SEL_VEL, SEL_N };
 static uint32_t sel_mode(void) { return ((ui_prefs2 >> 4) & 1u) | ((ui_prefs2 >> 5) & 2u); }
-#define PREF_SEQ_END (0x80u << 16)
+/* 1.6.1_sequences: a fourth byte of MENU flags, no engine uses it (favorites.factory[15][13], 0 in every older setting), the
+ * rows' bits << 24 (menu_items.c): bit 0 SYSTEM > SEQ SWITCH END (patbank.c: a sequence chosen while playing starts at the end
+ * of the one playing; 0 = NOW) */
+#define ui_prefs3 (favorites.factory[15][13])
+#define PREF_Y 0xFF000000u
+#define PREF_SEQ_END (0x01u << 24)
 /* 1.3 (Discussions #112, #134): MENU > DISPLAY > HOME, what the HOME page shows under its four cards: 0 SCOPE (the
  * oscilloscope, as before), 1 TRACKS (the four tracks as rows: ui_graph.c draw_home_tracks), 2 LEVELS (1.5, #134: the
  * rows of TRACKS, and KNOB 1..4 the LEVEL of T1..T4 in place of the engine's four: home_param). A byte of its own no
@@ -372,7 +381,8 @@ static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.p
 /* MENU > LARGE (#15, Discussion #80: what KNOB 1..4 do, in bigger type). Per page type:
  *   LK_TALL  HOME and the value pages (EDIT ENV LFO MOD FX SLICER SCL CHORD ARP VOICE, MIXER, CLOCK,
  *            TOOLS): tall cards (a K1..K4 keycap, the icon, the label in M, the value in L,
- *            in M or S when L is too wide or lacks a glyph, the unit under it, the gauge), the panel a strip: HOME's
+ *            in M or S when L is too wide or lacks a glyph for any value of the knob (#251: one size per knob,
+ *            ui_draw.c span_face), the unit under it, the gauge), the panel a strip: HOME's
  *            scope, ENV's ADSR, LFO's wave, MIXER's four tracks (name, state, meter) small; the
  *            page's title and number in L on the others (their charts cannot be read that small);
  *   LK_LABEL the list and graph pages (PRESETS, USER, PROJECT, PHRASES, SONG, the piano roll and the drum grid,
@@ -391,7 +401,7 @@ static uint32_t large_kind(void)
         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
-           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS ? LK_LABEL : LK_TALL;
+           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS || g == GR_GENS || g == GR_CPK ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height */
 static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
@@ -1773,6 +1783,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_EVENTS) return 16u;     /* AUTOMATION: no knob is an action; OCT+ by the row (ev_oct) */
+    if (pg->graph == GR_CPK) return 16u;        /* SAVE > CHORDS: no knob is an action; OCT+ saves the pack (cpk_save) */
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
         return 1u;                               /* PLAY / STOP (also the PLAY button) */
@@ -1796,6 +1807,7 @@ static uint32_t act_col(void)
 {
     if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
     if (!ui.home && cur_page()->graph == GR_EVENTS) return 5u;
+    if (!ui.home && cur_page()->graph == GR_CPK) return 5u;
     return !ui.home && cur_page()->graph == GR_PATS ? 2u : ui.act;
 }
 
@@ -1804,6 +1816,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
     uint32_t id = cur_page()->id[c & 3u];
     if (cur_page()->graph == GR_EVENTS) return ev_act_name();
+    if (cur_page()->graph == GR_CPK) return "SAVE";
     if (cur_page()->graph == GR_TOOLS) {
         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
         return (c & 3u) == 1u && ui.tl_clean ? "CLEAN" : actions[c & 3u];   /* (1.5.5: KNOB 2 on: CLEAN INIT) */
@@ -1829,6 +1842,7 @@ static int act_ready(void)
     if (!c--)
         return 0;
     if (cur_page()->graph == GR_EVENTS) return ev_act_ready();
+    if (cur_page()->graph == GR_CPK) return cpk_sel >= CPK_NF;          /* a user pack picked */
     if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
                                  c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);

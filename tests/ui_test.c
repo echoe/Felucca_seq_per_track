@@ -1653,11 +1653,15 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 7 rows; 1.6_sequences: SEQ SWITCH in SYSTEM; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 8 rows: 1.6.1 2ND CORE, a FELUCCA_CPU2=0 build SYSTEM 7; 1.6.1_sequences: SEQ SWITCH; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
                  "constant (S, LARGE)",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
                  mtab_rows(MTAB_DISPLAY) == 8u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 8u && MI_TAB[MI_SELECT] == MTAB_CONTROL && mtab_rows(MTAB_AUDIO) == 6u &&
-                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 7u && MI_TAB[MI_SEQSW] == MTAB_SYSTEM && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
+                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 7u + FELUCCA_CPU2 && MI_TAB[MI_SEQSW] == MTAB_SYSTEM &&   /* (1.6.1_sequences: SEQ SWITCH) */
+#if FELUCCA_CPU2
+                 MI_TAB[MI_CPU2] == MTAB_SYSTEM &&
+#endif
+                 MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES);
 
     ui_power_on();
@@ -1694,6 +1698,24 @@ static int test_menu_tabs(void)
     turn(EN_K4, 1); ok &= (ui_prefs & PREF_USB_FIXED) && fx_usb_fixed;
     turn(EN_K2, -1); ok &= !(ui_prefs & PREF_USB_FIXED) && !fx_usb_fixed;
     bad += check("MENU: any of KNOB 1..4 changes the selected row's value in any tab, the menu stays", ok && ui.menu == 1);
+#if FELUCCA_CPU2
+    {   /* 1.6.1: 2ND CORE, OFF in every older setting (bit 7 of ui_prefs2 clear); up ON (BETA), down OFF, each with a
+         * restart message; the value in words, not a switch (ui_menu.c MI_TEXT) */
+        uint8_t p2 = ui_prefs2;
+        ui_prefs2 = 0x7Fu;                             /* (1.6's bits all set but bit 7) */
+        ok = menu_get(MI_CPU2) == 0u && str_eq(menu_vname(MI_CPU2, 0), "OFF") &&
+             str_eq(menu_vname(MI_CPU2, 1), "ON (BETA)") && MI_TEXT(MI_CPU2) && !MI_TEXT(MI_HELP);
+        ui.menu_sel = MI_CPU2; ui.msg_t = 0;
+        press(B_OCTUP);
+        ok &= menu_get(MI_CPU2) == 1u && ui_prefs2 == 0xFFu && msg_is("2ND CORE ON: RESTART");
+        ui.msg_t = 0;
+        press(B_OCTDN);
+        ok &= menu_get(MI_CPU2) == 0u && ui_prefs2 == 0x7Fu && msg_is("2ND CORE OFF: RESTART");
+        ui_prefs2 = p2; ui.msg_t = 0;
+        bad += check("MENU > SYSTEM > 2ND CORE (1.6.1): OFF by default (bit 7 clear), OFF / ON (BETA) in words, a restart "
+                     "message each way", ok && ui.menu == 1);
+    }
+#endif
 
     /* OCT+ / OCT-: the next / previous value on every kind of row (as the knobs: stopping at the ends; COLOR wraps) */
     ok = 1;
@@ -2665,7 +2687,7 @@ static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const ste
 static uint32_t auto_cur(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
 static int test_page_cycles(void)
 {
-    static const char *const SAVE_CYC[6] = {"USER", "PRESETS", "PHRASES", "PROJECT", "TOOLS", "USER"};   /* (1.5, #173) */
+    static const char *const SAVE_CYC[7] = {"USER", "PRESETS", "PHRASES", "PROJECT", "CHORDS", "TOOLS", "USER"};   /* (1.5, #173; 1.6.1_sequences: CHORDS) */
     int bad = 0, ok = 1;
     uint32_t i, n0;
     step_t ref[NSTEP], want;
@@ -2673,11 +2695,11 @@ static int test_page_cycles(void)
     uint16_t rw[EV_ROWS];
     /* the cycles: each button's taps, in order */
     ui_power_on();
-    for (i = 0; i < 6u; i++) {
+    for (i = 0; i < 7u; i++) {
         press(B_SAVE); frames(320);
         ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, SAVE_CYC[i]);
     }
-    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > TOOLS > USER", ok);
+    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > CHORDS > TOOLS > USER", ok);
     ok = 1;
     for (i = 0; i < NPAGES; i++) {                       /* every page in a family its button reaches, and its LED */
         uint32_t f = PAGES[i].fam;
@@ -9342,6 +9364,68 @@ static int test_seq_end_knob(void)
     ok &= CH_SEQ(chain_config.row[0].slot[0]) == 0u;
     chain_defaults(&chain_config);
     bad += check("1.6 SONG: PRESETS turns the cell's sequence (0 = as saved .. 8), KNOB 3 resets it, a silent cell has none", ok);
+    /* ARP > GEN: KNOB 1..3 turn DENS, CHORD, EVOLVE of the selected track, KNOB 4 its scale; the arp's MODE stays */
+    ui_power_on();
+    gen_defaults();
+    go_title("GEN"); frame();
+    {
+        uint32_t sel = song.sel;
+        int16_t mode = TSEL->p[P_AMODE];
+        ok = cur_page()->graph == GR_GENS && cur_page()->fam == FAM_ARP;
+        turn(EN_K1, 10); frames(4);
+        ok &= gen_set[sel][GS_DENS] == 74;
+        turn(EN_K1, -200); frames(4);
+        ok &= gen_set[sel][GS_DENS] == 0;
+        turn(EN_K1, 500); frames(4);
+        ok &= gen_set[sel][GS_DENS] == 127;
+        turn(EN_K2, 33); frames(4);
+        ok &= gen_set[sel][GS_CHORD] == 33;
+        turn(EN_K3, -4); frames(4);
+        ok &= gen_set[sel][GS_EVOLVE] == 20;
+        TSEL->p[P_SCALE] = 0;
+        turn(EN_K4, 2); frames(4);
+        ok &= TSEL->p[P_SCALE] == 2 && TSEL->p[P_AMODE] == mode;
+        turn(EN_K4, 99); frames(4);
+        ok &= TSEL->p[P_SCALE] == 15;
+        gen_defaults(); TSEL->p[P_SCALE] = 0;
+        bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE (0..127) and SCL of the selected track", ok);
+    }
+
+    /* SAVE > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
+    ui_power_on();
+    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
+    go_title("CHORDS"); frame();
+    ok = cur_page()->graph == GR_CPK && cur_page()->fam == FAM_SAVE;
+    turn(EN_K1, 1); frames(4);
+    ok &= cpk_sel == 1 && !memcmp(&cpk, &CPK_F[1].p, sizeof cpk);                   /* JAZZ: loaded */
+    turn(EN_K2, 3); frames(4);
+    ok &= cpk_key == 3;
+    turn(EN_K2, 99); frames(4);
+    ok &= cpk_key == CPK_KEYS - 1u;
+    turn(EN_K2, -99); frames(4); turn(EN_K2, 2); frames(4);
+    turn(EN_K3, 3); frames(4);
+    ok &= cpk_key == 2 && cpk.act[2] == CPK_F[1].p.act[2] + 3u;
+    turn(EN_K3, 99); frames(4);
+    ok &= cpk.act[2] == CA_N - 1u;
+    turn(EN_K3, -99); frames(4);
+    ok &= cpk.act[2] == CA_NONE;
+    turn(EN_K4, 5); frames(4);
+    ok &= cpk.strum == CPK_F[1].p.strum + 5u;
+    turn(EN_K4, 500); frames(4);
+    ok &= cpk.strum == CPK_STRUM_MAX;
+    press(B_OCTUP); frames(10);                                                     /* a built in pack: not written over */
+    ok &= !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk) && cpk_sel == 1;
+    turn(EN_K1, CPK_NF - 1u); frames(4);                                              /* the first user pack */
+    ok &= cpk_sel == CPK_NF && !memcmp(&cpk, &cpk_user[0], sizeof cpk);
+    turn(EN_K3, 5); frames(4);                                                       /* its key 3: changed, then saved by OCT+ */
+    cpk.strum = 21; cpk.act[cpk_key] = CA_AUG;
+    press(B_OCTUP); frames(10);
+    ok &= !memcmp(&cpk_user[0], &cpk, sizeof cpk) && cpk_user[0].strum == 21 && cpk_user[0].act[cpk_key] == CA_AUG;
+    turn(EN_K1, -3); frames(4); turn(EN_K1, 3); frames(4);                              /* away and back: the saved one */
+    ok &= cpk.strum == 21 && cpk.act[cpk_key] == CA_AUG;
+    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
+    bad += check("1.6.1 SAVE > CHORDS: the knobs pick the pack, the black key, its action and the strum speed; OCT+ saves a user pack", ok);
+
     /* the footer says what PRESETS does on both pages (preset_hint: ui_draw.c) */
     {
         char h[16]; uint32_t on;

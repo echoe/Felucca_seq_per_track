@@ -368,6 +368,8 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
 #endif
+    if (!ui.layer && !ui.menu && !name_on() && !grid_on() && strum_on(TSEL))
+        c |= 1u << strum_led_key(TSEL) & 0x7FFFFFFu;    /* STR3 / STR7: the chord chosen (chord.c) */
     return c;
 }
 
@@ -497,6 +499,20 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
 
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
  * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
+#if FELUCCA_PATBANK
+/* ARP > GEN: KNOB 1..3 DENS, CHORD, EVOLVE of the selected track (0..127), KNOB 4 its SCL */
+static void gen_edit(uint32_t slot, int32_t steps)
+{
+    uint32_t t = song.sel % NTRK;
+    if (slot < GS_N) {
+        gen_set[t][slot] = (uint8_t)clamp((int32_t)gen_set[t][slot] + steps, 0, 127);
+        pb_dirty |= 7u;                                  /* (the settings are in the sequence store's first three objects) */
+        pb_gen++;
+    } else
+        TSEL->p[P_SCALE] = (int16_t)clamp((int32_t)TSEL->p[P_SCALE] + steps, 0, (int32_t)(sizeof SCALE_MASK / sizeof SCALE_MASK[0]) - 1);
+    ui.force = 1;
+}
+#endif
 #if FELUCCA_PATBANK
 /* SEQ > SEQUENCE: KNOB k turns track k's sequence, 1..8 (no wrap) */
 static void seqs_edit(uint32_t slot, int32_t steps)
@@ -1026,6 +1042,14 @@ static void edit_param(uint32_t slot, int32_t steps)
         seqs_edit(slot, steps);
         return;
     }
+    if (pg->graph == GR_GENS) {
+        gen_edit(slot, steps);
+        return;
+    }
+    if (pg->graph == GR_CPK) {                            /* SAVE > CHORDS: KNOB 1 PACK, 2 KEY, 3 ACT, 4 STRUM (patbank.c cpk_edit) */
+        cpk_edit(slot, steps);
+        return;
+    }
 #endif
     if (pg->scope == SC_TRK) {
         tracks_edit(slot, steps);
@@ -1109,6 +1133,10 @@ static void act_do(void)
         return;
     if (cur_page()->graph == GR_EVENTS) {
         ev_oct();
+        return;
+    }
+    if (cur_page()->graph == GR_CPK) {
+        cpk_save();
         return;
     }
     if (cur_page()->graph == GR_TOOLS) {

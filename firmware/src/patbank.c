@@ -259,7 +259,7 @@ static int pb_request(uint32_t t, uint32_t s)
         pb_next[t] = 0;
         return 2;
     }
-    if ((ui_prefs2 & (PREF_SEQ_END >> 16)) && song.playing && s < PB_N) {
+    if ((ui_prefs3 & (PREF_SEQ_END >> 24)) && song.playing && s < PB_N) {
         pb_next[t] = (uint8_t)(s + 1u);
         return 1;
     }
@@ -306,10 +306,47 @@ static void pb_reset_to_live(void)
 {
     uint32_t t;
     pb_clear_all();
+    gen_defaults();                                      /* (the ARP's GEN knobs: the store's, if it has them, come after) */
+    cpk_defaults();                                      /* (CHRD PLAY's chord packs, the same) */
     for (t = 0; t < NTRK; t++)
         pb_sync(t);
     pb_dirty = 0x3Fu;
     pb_gen++;
+}
+
+/* ---- SAVE > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
+static void cpk_touch(void)                             /* the packs changed: saved with the music (patbank_store.c) */
+{
+    pb_dirty |= 1u << PB_META_O;
+    pb_gen++;
+}
+/* SAVE > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
+static void cpk_edit(uint32_t slot, int32_t steps)
+{
+    if (slot == 0u) {
+        cpk_sel = (uint8_t)clamp((int32_t)cpk_sel + steps, 0, (int32_t)CPK_N - 1);
+        cpk = *cpk_pack(cpk_sel);
+    } else if (slot == 1u)
+        cpk_key = (uint8_t)clamp((int32_t)cpk_key + steps, 0, (int32_t)CPK_KEYS - 1);
+    else if (slot == 2u)
+        cpk.act[cpk_key] = (uint8_t)clamp((int32_t)cpk.act[cpk_key] + steps, 0, (int32_t)CA_N - 1);
+    else
+        cpk.strum = (uint8_t)clamp((int32_t)cpk.strum + steps, 0, (int32_t)CPK_STRUM_MAX);
+    cpk_touch();
+    ui.force = 1;
+}
+/* OCT+: what the black keys do now, kept as the user's pack picked (a built in one is not written over) */
+static void cpk_save(void)
+{
+    char nb[8], mb[16] = "SAVED ";
+    if (cpk_sel < CPK_NF) {
+        ui_message("PICK A USER PACK");
+        return;
+    }
+    cpk_user[cpk_sel - CPK_NF] = cpk;
+    str_cpy(mb + 6, cpk_name(cpk_sel, nb), 9);
+    ui_message(mb);
+    cpk_touch();
 }
 #else
 #define pb_gen 0u

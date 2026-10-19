@@ -229,7 +229,11 @@ static uint64_t lg_n[4];
 static char lg_miss[96], lg_wide[16][12], lg_small[16][12];
 static uint32_t lg_nwide, lg_nsmall;
 static void lg_hook(const char *s, int why);
-#define LARGE_HOOK(s, why) lg_hook(s, why)
+static int8_t lg_face[4] = {-1, -1, -1, -1};     /* #251: the face tall card c got in its last draw (0 L, 1 M, 2 S;
+                                                  * c: draw_column_tall's card, where the hook is) */
+static char lg_val[4][16];                       /* .. and its value */
+#define LARGE_HOOK(s, why) (lg_face[c & 3u] = (int8_t)((why) == 0 ? 0 : (why) == 3 ? 2 : 1), \
+                            snprintf(lg_val[c & 3u], 16, "%s", s), lg_hook(s, why))
 static void cs_hook(const char *v, const char *u);
 #define CARD_HOOK(v, u) cs_hook(v, u)
 #define UI_TEST_NO_MAIN 1
@@ -769,7 +773,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_DETAIL_COND, S_DETAIL_FILL, S_AUTO_COND, S_GLO_FILL, S_SEQ_EUCLID, S_SEQ_EUCLID_DRUM, S_SEQ_EUCLID_64,
        S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
        S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
-       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_COUNT };
+       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_GEN, S_GEN_OFF, S_CHORD_STRUM, S_CHORDS, S_CHORDS_USER, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -801,7 +805,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "layer_seq_euclid_64",
     "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
     "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
-    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain"};
+    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain", "gen", "gen_off", "chord_strum", "chords", "chords_user"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1127,6 +1131,19 @@ static void setup(int s)
         go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
         break;
     }
+    case S_CHORDS: case S_CHORDS_USER:               /* 1.6.1_sequences SAVE > CHORDS: the JAZZ pack, key 3 (7) picked; a user pack, changed */
+        TSEL->p[P_CHRD] = s == S_CHORDS ? CH_PLAY : CH_OFF;
+        cpk_defaults(); cpk_sel = s == S_CHORDS ? 1 : (uint8_t)CPK_NF + 1u; cpk_key = 2;
+        cpk = *cpk_pack(cpk_sel);
+        if (s == S_CHORDS_USER) { cpk.act[2] = CA_MIN9; cpk.act[7] = CA_A11; cpk.strum = 12; }
+        go_title("CHORDS"); ui.hot_col = 2; ui.hot_t = 30;
+        break;
+    case S_CHORD_STRUM:                              /* 1.6.1_sequences: STR7, the black key of the V chord chosen: G7 */
+        TSEL->p[P_VOICE] = V_POLY; TSEL->p[P_ROOT] = 0; TSEL->p[P_SCALE] = 1;
+        TSEL->p[P_CHRD] = CH_STR7; TSEL->p[P_VOIC] = VC_CLOSE;
+        strum_select(TSEL, 4u);
+        go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
+        break;
     case S_CHORD_OFF: go_title("CHORD"); break;
     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
     case S_ARP: go_title("ARP"); break;
@@ -1210,12 +1227,27 @@ static void setup(int s)
         perf_held = perf_act = PF_BIT(PF_RTHR) | PF_BIT(PF_ETHR);
         break;
     case S_SEQUENCE:                                   /* 1.6 SEQ > SEQUENCE: T1 plays 3 (of 1, 3, 4 with notes), T3 plays 2, T4 8 */
+    case S_GEN: case S_GEN_OFF: {                      /* 1.6 ARP > GEN: the loop as GEN made it, playing (or the arp's MODE not GEN) */
+        track_t *tg = &trk[0];
+        memset(gen, 0, sizeof gen); gen_defaults();
+        gen_set[0][GS_DENS] = 80; gen_set[0][GS_CHORD] = 50; gen_set[0][GS_EVOLVE] = 30;
+        tg->p[P_AMODE] = s == S_GEN ? AM_GEN : AM_UP; tg->p[P_ARATE] = 2; tg->p[P_AOCT] = 2; tg->p[P_SLEN] = 16; tg->p[P_SCALE] = 1;
+        song.sel = 0; song.playing = s == S_GEN;
+        tg->arp_pos = 0xFFFFFFF; tg->arp_idx = 0xFFFFFFFFu;
+        if (s == S_GEN) {
+            uint32_t b;
+            for (b = 0; b < 40u; b++)
+                arp_tick(tg, CTL);
+        }
+        go_page(GR_GENS);
+        break;
+    }
     case S_SEQUENCE_FULL:
     case S_SEQUENCE_CHAIN:
     case S_SEQUENCE_NEXT: {
         uint32_t t, q;
         memset(pb_next, 0, sizeof pb_next); memset(pb_cmask, 0, sizeof pb_cmask);
-        ui_prefs2 &= (uint8_t)~(PREF_SEQ_END >> 16); song.playing = 0;
+        ui_prefs3 &= (uint8_t)~(PREF_SEQ_END >> 24); song.playing = 0;
         for (t = 0; t < NTRK; t++)
             for (q = 0; q < PB_N; q++) {
                 if (!(s == S_SEQUENCE_FULL || (t == 0u && (q == 0u || q == 2u || q == 3u)) || (t == 2u && q == 1u)))
@@ -1229,7 +1261,7 @@ static void setup(int s)
             pb_chain_set(0, 2, 1); pb_chain_set(0, 3, 1); pb_chain_set(0, 5, 1); pb_chain_set(2, 1, 1); pb_chain_set(2, 6, 1);
         }
         if (s == S_SEQUENCE_NEXT) {                    /* SEQ SWITCH END, playing: T1 and T3 wait (for 6 and 1) */
-            ui_prefs2 |= (uint8_t)(PREF_SEQ_END >> 16); song.playing = 1;
+            ui_prefs3 |= (uint8_t)(PREF_SEQ_END >> 24); song.playing = 1;
             (void)pb_request(0, 5); (void)pb_request(2, 0);
         }
         go_page(GR_SEQS); ui.hot_col = 2; ui.hot_t = 30;
@@ -1716,6 +1748,41 @@ static void draw(int s)
 
 /* every value of every column on every page of every engine: labels and values fit their column */
 static uint32_t nsweep, nmotion;
+/* #251, MENU > LARGE: a tall card's value keeps its face (L, M or S) over the whole range of what the knob turns; a
+ * knob whose values take two faces is a finding. lg_span_* around one knob's sweep, lg_span_draw after each draw */
+static uint32_t lg_span_mask, lg_nspan, lg_njump, lg_nface[3];   /* (lg_nface: the knobs set wholly in L, M, S) */
+static char lg_span_ex[3][16];
+static void lg_span_begin(void) { lg_span_mask = 0; memset(lg_span_ex, 0, sizeof lg_span_ex); }
+static void lg_span_draw(uint32_t c)
+{
+    int f = lg_face[c & 3u];
+    if (f < 0) return;
+    lg_span_mask |= 1u << f;
+    if (!lg_span_ex[f][0]) snprintf(lg_span_ex[f], 16, "%s", lg_val[c & 3u]);
+}
+static void lg_span_end(uint32_t c, const char *label)
+{
+    if (!lg_span_mask) return;
+    lg_nspan++;
+    if (!(lg_span_mask & (lg_span_mask - 1u)))
+        lg_nface[lg_span_mask == 1u ? 0 : lg_span_mask == 2u ? 1 : 2]++;
+    if (lg_span_mask & (lg_span_mask - 1u)) {
+        lg_njump++;
+        nfind++;
+        if (rep) fprintf(rep, "FIND %-26s K%u %s: its values change size (L '%s' M '%s' S '%s')\n", cur_name, c + 1u,
+                         label, lg_span_ex[0], lg_span_ex[1], lg_span_ex[2]);
+    }
+}
+static void lg_draw_one(uint32_t c)                  /* the four cards drawn, card c's face noted */
+{
+    nscr = npend = 0;
+    ui.force = 1;
+    lg_face[c & 3u] = -1;
+    draw_columns();
+    lint();
+    nsweep++;
+    lg_span_draw(c);
+}
 /* #63: the page drawn again with MOTION driving each of its cards' track parameters (the motion icon beside
  * every label, the long ones too): the lint over it; the motion cleared again */
 static void sweep_motion(void)
@@ -1758,15 +1825,13 @@ static void sweep_columns(void)
                 int32_t v, v0;
                 if (!d || !d->label || d->label[0] == '-' || PAGES[i].graph == GR_MOD) continue;
                 v0 = *vp;
+                lg_span_begin();
                 for (v = d->min; v <= d->max; v++) {
                     *vp = (int16_t)v;
-                    nscr = npend = 0;
-                    ui.force = 1;
-                    draw_columns();
-                    lint();
-                    nsweep++;
-                    if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
+                    lg_draw_one(c);
+                    if (!large_on && v - d->min > 300) v = d->max - 1;   /* wide ranges: the ends (LARGE: all, #251) */
                 }
+                lg_span_end(c, d->label);
                 *vp = (int16_t)v0;
             }
             draw(-1);                                    /* the whole page */
@@ -1785,6 +1850,19 @@ static void sweep_columns(void)
         draw(-1);
         lint();
         sweep_motion();
+        for (c = 0; c < 4u; c++) {                       /* every value of HOME's four knobs (#251: under LARGE too) */
+            int16_t *vp;
+            const param_desc_t *d = home_param(c, &vp);
+            int32_t v, v0 = *vp;
+            if (!d || !d->label || d->label[0] == '-') continue;
+            lg_span_begin();
+            for (v = d->min; v <= d->max; v++) {
+                *vp = (int16_t)v;
+                lg_draw_one(c);
+            }
+            lg_span_end(c, d->label);
+            *vp = (int16_t)v0;
+        }
         state(); pal(UI_GREY_INDEX); eng(e); go_home(); ui_home_view = HV_TRACKS;   /* 1.3: HOME > TRACKS, this engine on */
         for (i = 0; i < NTRK; i++)                                                 /* every row, every one muted */
             trk[i].p[P_MUTE] = 1, set_engine_of(&trk[i], e);
@@ -1811,19 +1889,40 @@ static void sweep_columns(void)
                             b = fop_byte(f); mb = (5u - o) * FP_OP + FP_MODE;
                             fm6_patch[song.sel][mb] = (uint8_t)m;
                             v0 = fm6_patch[song.sel][b];
+                            lg_span_begin();
                             for (v = 0; v <= fm6_max(b); v++) {
                                 fm6_patch[song.sel][b] = (uint8_t)v;
-                                nscr = npend = 0;
-                                ui.force = 1;
-                                draw_columns();
-                                lint();
-                                nsweep++;
+                                lg_draw_one(k);
                             }
+                            lg_span_end(k, PG[g]);
                             fm6_patch[song.sel][b] = (uint8_t)v0;
                             fm6_pgen[song.sel]++;
                             draw(-1);
                             lint();
                         }
+        }
+    }
+    {   /* the MOD page's cards: every source, destination (with each source) and amount, card by card (#251) */
+        int32_t v, sr;
+        for (e = 0; e < NENGINES; e++) {
+            if (!eng_ok(e)) continue;
+            state(); pal(UI_GREY_INDEX); eng(e); go_title("MOD");
+            snprintf(name, sizeof name, "%s%s/MOD cards", large_on ? "LARGE " : "", ENGINES[e]->name);
+            cur_name = name;
+            mod_ui_slot = 0;
+            lg_span_begin();
+            for (v = 0; v < MS_N; v++) { TSEL->p[P_M1SRC] = (int16_t)v; lg_draw_one(1); }
+            lg_span_end(1, "SRC");
+            for (sr = 0; sr < MS_N; sr++) {
+                TSEL->p[P_M1SRC] = (int16_t)sr;
+                lg_span_begin();
+                for (v = 0; v < MD_N; v++) { TSEL->p[P_M1DST] = (int16_t)v; lg_draw_one(2); }
+                lg_span_end(2, "DST");
+            }
+            TSEL->p[P_M1SRC] = 1; TSEL->p[P_M1DST] = 1;
+            lg_span_begin();
+            for (v = TP[P_M1AMT].min; v <= TP[P_M1AMT].max; v++) { TSEL->p[P_M1AMT] = (int16_t)v; lg_draw_one(3); }
+            lg_span_end(3, "AMT");
         }
     }
     for (e = 0; e < 4u; e++) {                           /* the MOD page: every source and destination */
@@ -2336,6 +2435,11 @@ int main(int argc, char **argv)
         fprintf(rep, "\n  in S, e.g.:");
         for (s = 0; s < lg_nsmall; s++) fprintf(rep, " '%s'", lg_small[s]);
         fprintf(rep, "\n");
+        fprintf(rep, "  #251: %u knobs swept tall, %u whose values change size; %u wholly in L, %u in M, %u in S\n", lg_nspan,
+                lg_njump, lg_nface[0], lg_nface[1], lg_nface[2]);
+        printf("ui_render: MENU > LARGE: %u knobs swept tall, %u whose values change size (#251); %u in L, %u in M, %u in S\n",
+               lg_nspan, lg_njump, lg_nface[0], lg_nface[1], lg_nface[2]);
+        if (lg_nspan < 100u) { fprintf(stderr, "ui_render: LARGE swept %u knobs tall only\n", lg_nspan); return 1; }
     }
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in GREY: gray */
         uint32_t a, c0 = fmp_charts;

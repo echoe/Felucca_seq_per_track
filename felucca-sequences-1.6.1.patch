@@ -1,63 +1,71 @@
-From cfa8a76304d18db7784a3230f4e8ab0a5b233eba Mon Sep 17 00:00:00 2001
+From 48b996e974c9c1a9c0a3de513420fa34c41ad27a Mon Sep 17 00:00:00 2001
 From: Felucca dev <dev@example.invalid>
 Date: Sat, 10 Oct 2026 14:53:08 +0000
-Subject: [PATCH] Eight sequences per track (FELUCCA_PATBANK): SEQ SWITCH,
- CHAIN, song sequences
+Subject: [PATCH] Eight sequences per track (FELUCCA_PATBANK), SEQ SWITCH,
+ CHAIN, song sequences, ARP GEN, strum and PLAY chords
 
 Each track plays one of eight sequences (own steps, LEN, 64 automation records).
 SEQ > SEQUENCE (fourth SEQ page; KNOB 1..4 pick, PRESETS chains the selected
-sequence); MENU > SYSTEM > SEQ SWITCH NOW / END; chained sequences play one after
-the other. SONG: PRESETS picks the sequence a cell plays (CH_SEQ in the lane byte,
-read from the project's store at PLAY; up to six chosen). Project SAVE/LOAD and the
-autosave keep the banks in the flash the user sample slots had. Version
-v1.6_sequences. Based on 1.6.
+sequence); MENU > SYSTEM > SEQ SWITCH NOW / END; chained sequences play one after the
+other. SONG: PRESETS picks the sequence a cell plays. Project SAVE/LOAD and the autosave
+keep the banks in the flash the user sample slots had. ARP MODE GEN: generative notes of
+the track's scale, ARP > GEN page. SCL > CHORD: CHRD STR3 / STR7 (black keys choose a
+diatonic chord, white keys strum it) and PLAY (white keys play chords shaped by the black
+keys held: qualities, sevenths, 9/11/13, INV, BASS, STRM with a speed, ARP); SAVE >
+CHORDS sets what each black key does, six built in packs and four user packs, saved with
+the music. Version v1.6.1_sequences. Based on 1.6.1.
 ---
  BUILDING.md                  |   1 +
- README.md                    |  23 ++
- firmware/src/core.h          |  14 ++
+ README.md                    |  79 ++++++
+ firmware/src/chord.c         | 386 ++++++++++++++++++++++++++--
+ firmware/src/core.h          |  14 +
  firmware/src/editor.c        |  10 +-
  firmware/src/editor_backup.c |   3 +-
  firmware/src/editor_menu.c   |   1 +
  firmware/src/eng_sample.c    |   3 +-
  firmware/src/felucca.c       |   3 +-
- firmware/src/icons.c         |   1 +
+ firmware/src/icons.c         |   3 +
  firmware/src/main.c          |   1 +
- firmware/src/menu_items.c    |   8 +-
- firmware/src/params.c        |   5 +-
- firmware/src/patbank.c       | 316 ++++++++++++++++++++++++++
- firmware/src/patbank_store.c | 209 +++++++++++++++++
- firmware/src/project.c       | 100 +++++++-
- firmware/src/seq.c           |   2 +
- firmware/src/song_chain.c    |  26 ++-
+ firmware/src/menu_items.c    |  14 +-
+ firmware/src/params.c        |  15 +-
+ firmware/src/patbank.c       | 353 +++++++++++++++++++++++++
+ firmware/src/patbank_store.c | 237 +++++++++++++++++
+ firmware/src/project.c       | 101 +++++++-
+ firmware/src/seq.c           | 207 ++++++++++++++-
+ firmware/src/song_chain.c    |  26 +-
  firmware/src/storage.c       |  24 +-
- firmware/src/ui.c            |  12 +-
- firmware/src/ui_draw.c       |  78 ++++++-
- firmware/src/ui_graph.c      |  62 ++++-
- firmware/src/ui_help.c       |   3 +-
- firmware/src/ui_input.c      |  70 +++++-
- firmware/src/ui_layer.c      |  76 ++++++-
+ firmware/src/ui.c            |  20 +-
+ firmware/src/ui_draw.c       | 111 +++++++-
+ firmware/src/ui_graph.c      | 181 ++++++++++++-
+ firmware/src/ui_help.c       |   5 +-
+ firmware/src/ui_input.c      |  98 ++++++-
+ firmware/src/ui_layer.c      |  76 +++++-
  tests/backup_test.c          |   1 +
+ tests/chord_test.c           | 255 +++++++++++++++++-
  tests/detail_test.c          |   8 +-
- tests/editor_test.c          |  29 +--
+ tests/editor_test.c          |  17 +-
  tests/fm6bank_test.c         |   1 +
- tests/patbank_test.c         | 429 +++++++++++++++++++++++++++++++++++
+ tests/gen_test.c             | 173 +++++++++++++
+ tests/motion_test.c          |   8 +-
+ tests/patbank_test.c         | 485 +++++++++++++++++++++++++++++++++++
  tests/persistence_test.c     |   1 +
- tests/run_tests.sh           |  18 +-
- tests/ui_render.c            |  37 ++-
- tests/ui_test.c              | 119 +++++++++-
+ tests/run_tests.sh           |  20 +-
+ tests/ui_render.c            |  65 ++++-
+ tests/ui_test.c              | 187 +++++++++++++-
  tools/build.py               |   2 +-
  web/emu/felucca_web.c        |   1 +
- 35 files changed, 1616 insertions(+), 81 deletions(-)
+ 39 files changed, 3068 insertions(+), 128 deletions(-)
  create mode 100644 firmware/src/patbank.c
  create mode 100644 firmware/src/patbank_store.c
+ create mode 100644 tests/gen_test.c
  create mode 100644 tests/patbank_test.c
 
 diff --git a/BUILDING.md b/BUILDING.md
-index ff8ee1a..62358d2 100644
+index 24ad106..3708d0a 100644
 --- a/BUILDING.md
 +++ b/BUILDING.md
-@@ -62,6 +62,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
- | `FELUCCA_UAC_AS_FIRST` | 1 | the audio control header lists the audio streaming interface before the MIDI one, so the USB audio driver of older macOS (up to 15) finds it; `0`: 1.0 to 1.5's order, byte for byte (`firmware/src/usb.c`) |
+@@ -76,6 +76,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
+ | `FELUCCA_CPU2` | 1 | the second core is built in (MENU > SYSTEM > 2ND CORE, OFF by default); `0`: none of it, 1.6's one-core code and RAM (`firmware/hal/fm1_cpu1.h`, `firmware/src/fx.c`) |
  | `FELUCCA_UART` | 1 | TRS MIDI IN |
  | `FELUCCA_SLICE` | 1 | the SLICE engine |
 +| `FELUCCA_PATBANK` | 1 | eight sequences per track (SEQ > SEQUENCE); their flash is where the three user sample slots were, so `0` builds with USR1..3 and no sequence banks |
@@ -65,15 +73,15 @@ index ff8ee1a..62358d2 100644
  | `FELUCCA_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
  
 diff --git a/README.md b/README.md
-index 0129c76..444cbaa 100644
+index 1171261..3608420 100644
 --- a/README.md
 +++ b/README.md
-@@ -54,3 +54,26 @@ Free software: [GPL-3.0-only](LICENSE), the Hügelton Sample Pack included; the
+@@ -64,3 +64,82 @@ and five engines ([Felucca-Engines](https://github.com/hugelton/Felucca-Engines)
  M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
  
  Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 +
-+## Sequences (eight per track) — this branch, v1.6_sequences
++## Sequences (eight per track) — this branch, v1.6.1_sequences
 +
 +Each track plays one of eight sequences. A sequence has its own steps, its own LEN and its own automation and parameter
 +locks (up to 64 records while it is not the one playing); DIV, SWING, GATE, QUANTIZE and the sound stay the track's.
@@ -95,8 +103,500 @@ index 0129c76..444cbaa 100644
 +- SAVE keeps all of a project's sequences (the record holds the one playing, so an older firmware still opens it); RESTORE LAST
 +  keeps the music's. They live in the flash the user sample slots had, which builds with `FELUCCA_PATBANK=1` (the default) do not
 +  have. A song plays each project's sequence as it was saved.
++
++### ARP > GEN: generative music (this branch)
++
++The arp's MODE has a last value, **GEN**: the track plays by itself while the music plays (PLAY starts it on its first step,
++STOP silences it), notes of its scale, and the keys play as they do with the arp OFF. **ARP > GEN** (the third ARP page) has
++its knobs for the selected track:
++
++- **DENS** (KNOB 1): how many steps of the loop play. A step plays when its own chance is below DENS, so turning it up adds
++  notes to the same loop and turning it down takes them away; 0 plays nothing, 100 % every step.
++- **CHORD** (KNOB 2): 0 plays single notes. From 1 a growing share of the steps are chords (all of them from about 50 %) and the
++  chords get richer: a fifth or a third, then triads and their suspensions, sevenths, then 9ths and quartal stacks (up to four notes).
++  All of them are built from the scale's own notes.
++- **EVOLVE** (KNOB 3): how much the loop changes each time it comes round: 0 repeats it exactly; a little moves a few notes a step
++  or two in the scale (now and then a new chance, chord or loudness); 100 % changes nearly every step each loop.
++- **SCL** (KNOB 4): the scale (the track's SCL; ROOT and TRN, on the SCL page and layer, and the arp's OCT, which sets how many
++  octaves it spans, pitch the same loop). The notes always follow them as they are turned.
++
++LEN is the loop's length (up to 32 steps, at the arp's RATE; SWG, GATE and PROB apply too). The page draws the loop as it is
++made: a bar a step, as high as its note, a mark over the chords, a line under the step playing. The knobs are saved with the
++sequence banks (project SAVE, RESTORE LAST); the loop itself is made when GEN starts and when a project loads, and keeps through
++STOP and PLAY. Record-arm a track to play GEN's notes into its sequence.
++
++### SCL > CHORD: STR3 and STR7, a chord to strum (this branch)
++
++The CHORD page's CHRD has two more values, **STR3** and **STR7**: the keys turn into a chord to strum, as on a guitar.
++
++- **Black keys** (F#3 .. F#5, eleven) choose the chord and make no sound: the diatonic triad (STR3) or seventh (STR7) on the scale's
++  1st, 2nd, 3rd ... degree (the track's ROOT and SCALE; a chromatic scale uses the major scale of ROOT), the keys past the scale's
++  last degree the same chords an octave up. The chosen key lights, and the CHORD page names the chord ("G7").
++- **White keys** (F3 .. G5, sixteen) are the strings of that chord: the chord's notes in order from the left, then the same an
++  octave up, and so on, so sliding a finger over the keys strums up the chord, and a key held sounds its string until it is let go.
++- **VOIC** voices the chord (CLOSE, OPEN, INV1, INV2, +OCT's bass string), **TRN** and the octave buttons move it. A MONO, LEGATO or
++  UNISON part plays the strings one at a time. MIDI notes, the arp and kits (DRUM, slices) play as with CHRD OFF.
++
++### SCL > CHORD: PLAY, chords with the white keys shaped by the black (this branch)
++
++A third new value for CHRD, **PLAY**: every white key plays a chord (its own note, on the track's scale as the keys are; plain major
++by default) and the **black keys held** with it shape the chord. The black keys make no sound. What each black key does is yours to
++set (below); with the built in POP pack, for example: key 1 (F#3) MIN, key 2 MIN7, key 3 7, key 4 MAJ7, key 5 SUS4, key 6 SUS2,
++key 7 DIM, key 8 +9, key 9 6, key 10 STRM, key 11 ARP. The chord is the one held when the white key goes down.
++
++The actions (lowest black key first, so a later one changes what an earlier one set: MIN then 7 is a minor seventh; 7, +9 and +11
++stack):
++
++- **quality** MIN, DIM, AUG, SUS2, SUS4, POW; **seventh** 6, 7, MAJ7, and MIN7, DIM7, M7B5, MMAJ7 (a quality with it); 9, MAJ9, MIN9
++  (with the ninth); **extras** +9, +11, +13 (added tones), INV (the root up an octave), BASS (the root an octave down).
++- **STRM**: the notes of the chord one after the other, low to high, held until the key is let go. How fast is the **SPEED** below.
++- **ARP**: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go.
++- Up to six tones: past that the fifth goes first, then the highest. VOIC voices the chord as it does the other chord modes.
++
++**SAVE > CHORDS** (the SAVE button's fifth page) is where the black keys are set: KNOB 1 PACK, 2 KEY (which black key), 3 ACT (what it
++does), 4 SPEED (the strum, 0..200 ms between notes). The page shows all eleven keys as chips with what a C chord becomes with the one
++edited. Packs are what the black keys do and the strum speed together: six are built in (POP, JAZZ, SUS, EXT, EASY, HARP) and four
++are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was changed since), and **OCT+ saves** what the black keys
++do now into the user pack picked. The packs and the keys' setting are saved with the music (project SAVE, RESTORE LAST), in the
++sequence banks' flash.
+diff --git a/firmware/src/chord.c b/firmware/src/chord.c
+index 6dbab99..fc67304 100644
+--- a/firmware/src/chord.c
++++ b/firmware/src/chord.c
+@@ -12,13 +12,16 @@
+  * MONO / LEGATO / UNISON parts play the chord's root only; a kit (the DRUM engine, slices: an
+  * engine that maps the keys itself) ignores CHRD. Every source keeps the notes it started (kb_chord for a
+  * key, mchord for a MIDI note) and its release ends exactly those, so CHRD / VOIC changed while it is held
+- * leave nothing hanging. A note several sources hold sounds once and ends with the last of them. */
+-enum { CH_OFF, CH_DIA3, CH_DIA7, CH_MAJ, CH_MIN, CH_DOM7, CH_MAJ7, CH_MIN7, CH_SUS4, CH_POW };
++ * leave nothing hanging. A note several sources hold sounds once and ends with the last of them.
++ * 1.6.1_sequences: STR3 / STR7, a chord to strum: the black keys choose the chord, the white keys are its strings (strum_*).
++ * MIDI notes, the arp and a kit play as with CHRD OFF. */
++enum { CH_OFF, CH_DIA3, CH_DIA7, CH_MAJ, CH_MIN, CH_DOM7, CH_MAJ7, CH_MIN7, CH_SUS4, CH_POW, CH_STR3, CH_STR7, CH_PLAY };
+ enum { VC_CLOSE, VC_OPEN, VC_INV1, VC_INV2, VC_BASS };
+-#define CHORD_MAX 4u
++#define CHORD_MAX 6u                     /* (1.6.1_sequences: PLAY's chords up to six tones; the shapes below four) */
++#define CHORD_SHAPE_N 4u
+ #define MCHORD_N 24u                     /* MIDI notes held as chords at once (more: their root alone) */
+ 
+-static const int8_t CHORD_SHAPE[CH_POW - CH_MAJ + 1][CHORD_MAX] = {
++static const int8_t CHORD_SHAPE[CH_POW - CH_MAJ + 1][CHORD_SHAPE_N] = {
+     {0, 4, 7, -1}, {0, 3, 7, -1}, {0, 4, 7, 10}, {0, 4, 7, 11}, {0, 3, 7, 10}, {0, 5, 7, -1}, {0, 7, 12, -1},
+ };
+ 
+@@ -42,7 +45,7 @@ static uint32_t chord_tones(const track_t *t, uint32_t mode, int32_t *root, int3
+ {
+     uint32_t n = 0, i;
+     if (mode >= CH_MAJ) {
+-        for (i = 0; i < CHORD_MAX && CHORD_SHAPE[mode - CH_MAJ][i] >= 0; i++)
++        for (i = 0; i < CHORD_SHAPE_N && CHORD_SHAPE[mode - CH_MAJ][i] >= 0; i++)
+             iv[n++] = CHORD_SHAPE[mode - CH_MAJ][i];
+         return n;
+     }
+@@ -70,26 +73,11 @@ static uint32_t chord_tones(const track_t *t, uint32_t mode, int32_t *root, int3
+ /* the chord on note `root` as track t plays it now -> out (ascending), the number of notes (1..CHORD_MAX);
+  * *rp its root, *maskp its tones above the root (bit i: i semitones; 0 = no chord). The root alone when CHRD
+  * is OFF, on a kit, or for MONO / LEGATO / UNISON (their chord's root) */
+-static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_t *rp, uint16_t *maskp)
++/* the voicing (VOIC) on the tones iv (semitones above r, n of them), ascending, each once inside 0..127: out, how many */
++static uint32_t chord_finish(const track_t *t, int32_t *iv, uint32_t n, int32_t r, uint8_t *out)
+ {
+-    int32_t iv[CHORD_MAX + 1u], r = (int32_t)root, x;
+-    uint32_t mode = (uint32_t)t->p[P_CHRD], n, i, j, m = 0;
+-    uint16_t mask = 0;
+-    *rp = r;
+-    *maskp = 0;
+-    if (!mode || mode > CH_POW || chord_kit(t)) {
+-        out[0] = (uint8_t)root;
+-        return 1;
+-    }
+-    n = chord_tones(t, mode, &r, iv);
+-    for (i = 0; i < n; i++)
+-        mask |= (uint16_t)(1u << (iv[i] % 12));
+-    *rp = r;
+-    *maskp = mask;
+-    if (trk_vmode(t) != V_POLY) {                       /* one voice: the root */
+-        out[0] = (uint8_t)clamp(r, 0, 127);
+-        return 1;
+-    }
++    int32_t x;
++    uint32_t i, j, m = 0;
+     switch (t->p[P_VOIC]) {
+     case VC_OPEN:                                       /* 1-5-3(-7): the second tone an octave up */
+         if (n >= 3u)
+@@ -105,7 +93,7 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
+         }
+         break;
+     case VC_BASS:                                       /* the root an octave down; a seventh drops its fifth */
+-        if (n == CHORD_MAX) {
++        if (n == 4u) {
+             iv[2] = iv[3];
+             n--;
+         }
+@@ -136,6 +124,34 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
+     return m;
+ }
+ 
++static uint32_t chord_make_x(const track_t *t, uint32_t mode, int poly, uint32_t root, uint8_t *out, int32_t *rp, uint16_t *maskp)
++{
++    int32_t iv[CHORD_MAX + 1u], r = (int32_t)root;
++    uint32_t n, i;
++    uint16_t mask = 0;
++    *rp = r;
++    *maskp = 0;
++    if (!mode || mode > CH_POW || chord_kit(t)) {
++        out[0] = (uint8_t)root;
++        return 1;
++    }
++    n = chord_tones(t, mode, &r, iv);
++    for (i = 0; i < n; i++)
++        mask |= (uint16_t)(1u << (iv[i] % 12));
++    *rp = r;
++    *maskp = mask;
++    if (!poly) {                                        /* one voice: the root */
++        out[0] = (uint8_t)clamp(r, 0, 127);
++        return 1;
++    }
++    return chord_finish(t, iv, n, r, out);
++}
++
++static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_t *rp, uint16_t *maskp)
++{
++    return chord_make_x(t, (uint32_t)t->p[P_CHRD], trk_vmode(t) == V_POLY, root, out, rp, maskp);
++}
++
+ /* chord_make for a note played now: a chord is kept in chord_last (the CHORD page shows it) */
+ static uint32_t chord_build(track_t *t, uint32_t root, uint8_t *out)
+ {
+@@ -153,6 +169,326 @@ static uint32_t chord_build(track_t *t, uint32_t root, uint8_t *out)
+     return m;
+ }
+ 
++/* ------------------------------------------------------------------------- STRUM --- */
++/* CHRD STR3 / STR7: the black keys are the track's chords, the white keys the strings of the chord chosen, as on a guitar.
++ *   black key b (0..10, F#3 .. F#5): the diatonic chord (a triad, STR7 a seventh) on degree b of the track's scale (ROOT, SCALE;
++ *        CHR: the major scale of ROOT), the degrees past the scale's last one an octave up; VOIC voices it; TRN and the
++ *        octave buttons move it. It makes no sound: it is what the strings play from now on (the chord's name on the CHORD page)
++ *   white key w (0..15, F3 .. G5): string w: the chord's notes in order, then the same an octave up, and so on, so the keys
++ *        from left to right walk up the chord and a strum is a slide over the keys. The key's release ends its note as any key
++ *        (MONO / LEGATO / UNISON parts play it too: it is one string at a time).
++ * Not on a kit (chord_kit) or over a layer, the DRUM grid or the NAME keys: those keys are theirs. */
++static uint8_t strum_slot[NTRK];                        /* the black key (0..10) whose chord the strings play */
++
++static int strum_on(const track_t *t) { return (t->p[P_CHRD] == CH_STR3 || t->p[P_CHRD] == CH_STR7) && !chord_kit(t); }
++
++/* the chord of black key `slot` as the strings play it: out ascending, how many (1..CHORD_MAX); *rp its root, *maskp its tones */
++static uint32_t strum_chord(const track_t *t, uint32_t slot, uint8_t *out, int32_t *rp, uint16_t *maskp)
++{
++    uint32_t mask = scale_mask(t), deg[12], c = 0, i, n;
++    int32_t root;
++    if (mask == 0xFFFu)
++        mask = SCALE_MASK[1];                           /* CHR: the major scale of ROOT */
++    for (i = 0; i < 12u; i++)
++        if ((mask >> i) & 1u)
++            deg[c++] = i;
++    root = 48 + (int32_t)t->p[P_ROOT] + 12 * (int32_t)song.octave + 12 * (int32_t)(slot / c) + (int32_t)deg[slot % c];
++    n = chord_make_x(t, t->p[P_CHRD] == CH_STR7 ? CH_DIA7 : CH_DIA3, 1, (uint32_t)clamp(root, 0, 127), out, rp, maskp);
++    for (i = 0; i < n; i++)                             /* (the scale is built before TRN, as kb_pitch) */
++        out[i] = (uint8_t)clamp((int32_t)out[i] + t->p[P_TRANS], 0, 127);
++    *rp = clamp(*rp + t->p[P_TRANS], 0, 127);
++    return n;
++}
++/* black key `slot` chosen: the chord is kept for the CHORD page (chord_last) as a chord played is */
++static void strum_select(const track_t *t, uint32_t slot)
++{
++    uint8_t out[CHORD_MAX];
++    int32_t r;
++    uint16_t mask;
++    uint32_t n, i, k = trk_index(t);
++    strum_slot[k] = (uint8_t)slot;
++    n = strum_chord(t, slot, out, &r, &mask);
++    chord_last[k].root = (uint8_t)r;
++    chord_last[k].mask = mask;
++    chord_last[k].n = (uint8_t)n;
++    for (i = 0; i < CHORD_MAX; i++)
++        chord_last[k].note[i] = i < n ? out[i] : 0u;
++    chord_last[k].gen++;
++}
++/* what key k (of the 27) does on a STR3 / STR7 track: a black key chooses (KB_SILENT: no sound), a white key is a string:
++ * its note, KB_SILENT when it is above 127 */
++static uint32_t strum_key(const track_t *t, uint32_t k)
++{
++    uint8_t out[CHORD_MAX];
++    int32_t r;
++    uint16_t mask;
++    uint32_t n, w, note;
++    if (key_black(k)) {
++        strum_select(t, key_place(k));
++        return KB_SILENT;
++    }
++    n = strum_chord(t, strum_slot[trk_index(t)], out, &r, &mask);
++    w = key_place(k);
++    note = out[w % n] + 12u * (w / n);
++    return note > 127u ? KB_SILENT : note;
++}
++/* the key that is the chosen chord's (the LED): 27 when there is none */
++static uint32_t strum_led_key(const track_t *t)
++{
++    uint32_t k;
++    for (k = 0; k < 27u; k++)
++        if (key_black(k) && key_place(k) == strum_slot[trk_index(t)])
++            return k;
++    return 27u;
++}
++
++/* ------------------------------------------------------------------------- PLAY --- */
++/* CHRD PLAY (1.6.1_sequences): a chord with every white key (its own note, on the track's scale as the keys are) and the black
++ * keys held with it shape the chord: each black key has an action (MIN, 7, +9, STRUM ...: cpk, set on the SAVE > CHORDS page),
++ * applied lowest key first, so a later one changes what an earlier one set (MIN then 7: a minor seventh; MIN7: one key for it;
++ * 7 and +9 and +11 stack). The chord is the one held when the white key goes down. The black keys make no sound.
++ *   quality  MIN DIM AUG SUS2 SUS4 POW      the triad (MAJ when none)
++ *   seventh  6 7 MAJ7, and MIN7 DIM7 M7B5 MMAJ7 (a quality with it), 9 MAJ9 MIN9 (with the ninth)
++ *   extra    +9 +11 +13 (added tones), INV (the lowest tone up an octave), BASS (the root an octave down)
++ *   how      STRUM: the notes one after the other, cpk.strum x 5 ms apart, all held until the key is let go
++ *            ARP: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go
++ * Up to CHORD_MAX (six) tones: past that the fifth goes first, then the highest. VOIC voices it as it does the other chord modes. */
++enum { CA_NONE, CA_MIN, CA_DIM, CA_AUG, CA_SUS2, CA_SUS4, CA_POW, CA_6, CA_7, CA_MAJ7, CA_MIN7, CA_DIM7, CA_M7B5, CA_MMAJ7,
++       CA_9, CA_MAJ9, CA_MIN9, CA_A9, CA_A11, CA_A13, CA_INV, CA_BASS, CA_STRUM, CA_ARP, CA_N };
++static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SUS4", "POW", "6", "7", "MAJ7", "MIN7", "DIM7",
++    "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
++#define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
++#define CPK_USER 4u                                     /* chord packs of the user's */
++#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 5 ms, 0..200 */
++typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
++typedef struct { const char *name; cpack_t p; } cpack_f_t;
++/* the chord packs: what each black key does (and how fast a strum goes) */
++static const cpack_f_t CPK_F[] = {
++    {"POP",   {{CA_MIN, CA_MIN7, CA_7, CA_MAJ7, CA_SUS4, CA_SUS2, CA_DIM, CA_A9, CA_6, CA_STRUM, CA_ARP}, 8}},
++    {"JAZZ",  {{CA_MIN7, CA_MAJ7, CA_7, CA_M7B5, CA_DIM7, CA_9, CA_MIN9, CA_MAJ9, CA_A13, CA_STRUM, CA_INV}, 6}},
++    {"SUS",   {{CA_SUS2, CA_SUS4, CA_A9, CA_A11, CA_POW, CA_6, CA_MAJ7, CA_MIN, CA_INV, CA_STRUM, CA_ARP}, 10}},
++    {"EXT",   {{CA_A9, CA_A11, CA_A13, CA_9, CA_MAJ9, CA_MIN9, CA_7, CA_MAJ7, CA_MIN7, CA_BASS, CA_STRUM}, 8}},
++    {"EASY",  {{CA_MIN, CA_7, CA_MAJ7, CA_SUS4, CA_DIM, CA_AUG, CA_POW, CA_NONE, CA_NONE, CA_STRUM, CA_ARP}, 12}},
++    {"HARP",  {{CA_MIN, CA_MIN7, CA_MAJ7, CA_A9, CA_A11, CA_BASS, CA_INV, CA_NONE, CA_STRUM, CA_STRUM, CA_ARP}, 4}},
++};
++#define CPK_NF (sizeof CPK_F / sizeof CPK_F[0])
++#define CPK_N (CPK_NF + CPK_USER)                       /* the packs the page lists: the built in ones, then the user's */
++static cpack_t cpk;                                     /* what the black keys do now (saved with the music: patbank_store.c) */
++static cpack_t cpk_user[CPK_USER];                      /* the user's packs (the same) */
++static uint8_t cpk_sel;                                 /* the pack the page shows (0 .. CPK_N - 1) */
++static void cpk_defaults(void)
++{
++    uint32_t i;
++    cpk = CPK_F[0].p;
++    for (i = 0; i < CPK_USER; i++)
++        cpk_user[i] = CPK_F[0].p;
++}
++static const cpack_t *cpk_pack(uint32_t i) { return i < CPK_NF ? &CPK_F[i].p : &cpk_user[(i - CPK_NF) % CPK_USER]; }
++static const char *cpk_name(uint32_t i, char *b)         /* b: 8 bytes for a user pack's name */
++{
++    if (i < CPK_NF)
++        return CPK_F[i].name;
++    str_cpy(b, "USER1", 8);
++    b[4] = (char)('1' + (i - CPK_NF) % CPK_USER);
++    return b;
++}
++static int cpk_valid(const cpack_t *p)
++{
++    uint32_t i;
++    for (i = 0; i < CPK_KEYS; i++)
++        if (p->act[i] >= CA_N)
++            return 0;
++    return p->strum <= CPK_STRUM_MAX;
++}
++
++static uint8_t cpk_key;                                 /* the black key the page edits (0..10) */
++
++typedef struct { uint8_t qual, sev, ext, inv, bass, strum, arp; } cshape_t;
++enum { PQ_MAJ, PQ_MIN, PQ_DIM, PQ_AUG, PQ_SUS2, PQ_SUS4, PQ_POW };
++static void play_apply(cshape_t *s, uint32_t a)
++{
++    switch (a) {
++    case CA_MIN: s->qual = PQ_MIN; break;
++    case CA_DIM: s->qual = PQ_DIM; break;
++    case CA_AUG: s->qual = PQ_AUG; break;
++    case CA_SUS2: s->qual = PQ_SUS2; break;
++    case CA_SUS4: s->qual = PQ_SUS4; break;
++    case CA_POW: s->qual = PQ_POW; break;
++    case CA_6: s->sev = 9; break;
++    case CA_7: s->sev = 10; break;
++    case CA_MAJ7: s->sev = 11; break;
++    case CA_MIN7: s->qual = PQ_MIN; s->sev = 10; break;
++    case CA_DIM7: s->qual = PQ_DIM; s->sev = 9; break;
++    case CA_M7B5: s->qual = PQ_DIM; s->sev = 10; break;
++    case CA_MMAJ7: s->qual = PQ_MIN; s->sev = 11; break;
++    case CA_9: s->sev = 10; s->ext |= 1u; break;
++    case CA_MAJ9: s->sev = 11; s->ext |= 1u; break;
++    case CA_MIN9: s->qual = PQ_MIN; s->sev = 10; s->ext |= 1u; break;
++    case CA_A9: s->ext |= 1u; break;
++    case CA_A11: s->ext |= 2u; break;
++    case CA_A13: s->ext |= 4u; break;
++    case CA_INV: s->inv = 1; break;
++    case CA_BASS: s->bass = 1; break;
++    case CA_STRUM: s->strum = 1; break;
++    case CA_ARP: s->arp = 1; break;
++    default: break;
++    }
++}
++/* the black keys held (bit b = black key b, 0..10) -> the chord's shape */
++static cshape_t play_shape(uint32_t held)
++{
++    cshape_t s = {0, 0, 0, 0, 0, 0, 0};
++    uint32_t b;
++    for (b = 0; b < CPK_KEYS; b++)
++        if ((held >> b) & 1u)
++            play_apply(&s, cpk.act[b]);
++    return s;
++}
++/* the chord on root for the shape: out ascending (CHORD_MAX at most), how many; *rp the root, *maskp the tones above it */
++static uint32_t play_chord(const track_t *t, const cshape_t *s, uint32_t root, uint8_t *out, int32_t *rp, uint16_t *maskp)
++{
++    static const int8_t THIRD[7] = {4, 3, 3, 4, 2, 5, -1}, FIFTH[7] = {7, 7, 6, 8, 7, 7, 7};
++    int32_t iv[CHORD_MAX + 3u], r = (int32_t)root;
++    uint32_t n = 0, i, fifth = 0, k;
++    uint16_t mask = 0;
++    iv[n++] = 0;
++    if (THIRD[s->qual] >= 0)
++        iv[n++] = THIRD[s->qual];
++    fifth = n;
++    iv[n++] = FIFTH[s->qual];
++    if (s->qual == PQ_POW)
++        iv[n++] = 12;
++    if (s->sev)
++        iv[n++] = s->sev;
++    if (s->ext & 1u) iv[n++] = 14;
++    if (s->ext & 2u) iv[n++] = 17;
++    if (s->ext & 4u) iv[n++] = 21;
++    if (s->bass)
++        iv[n++] = -12;
++    if (s->inv) {                                       /* the lowest tone of the chord, the root, an octave up */
++        for (i = 0; i < n; i++)
++            if (iv[i] == 0)
++                iv[i] = 12;
++    }
++    while (n > CHORD_MAX) {                             /* too many: the fifth goes, then the highest tone */
++        if (fifth && fifth < n && iv[fifth] == FIFTH[s->qual]) {
++            for (k = fifth; k + 1u < n; k++)
++                iv[k] = iv[k + 1u];
++            n--;
++            fifth = 0;
++        } else {
++            uint32_t hi = 0;
++            for (i = 1; i < n; i++)
++                if (iv[i] > iv[hi])
++                    hi = i;
++            for (k = hi; k + 1u < n; k++)
++                iv[k] = iv[k + 1u];
++            n--;
++        }
++    }
++    for (i = 0; i < n; i++)
++        mask |= (uint16_t)(1u << (((iv[i] % 12) + 12) % 12));
++    *rp = r;
++    *maskp = mask;
++    return chord_finish(t, iv, n, r, out);
++}
++static int play_on(const track_t *t) { return t->p[P_CHRD] == CH_PLAY && !chord_kit(t); }
++static int kb_is_black(uint32_t k) { return key_black(k); }
++/* the black keys held now (fm1_in.notes) as bits 0..10 */
++static uint32_t play_held(void)
++{
++    uint32_t k, m = 0;
++    for (k = 0; k < 27u; k++)
++        if (((fm1_in.notes >> k) & 1u) && key_black(k))
++            m |= 1u << key_place(k);
++    return m;
++}
++
++static void input_on(track_t *t, uint32_t note, uint32_t vel);          /* (seq.c, below) */
++static void input_off(track_t *t, uint32_t note);
++static int midi_local_held(const track_t *t, uint32_t note);
++/* the keys that play a chord one note at a time (STRUM, ARP): what each is doing */
++static uint8_t pk_mode[27], pk_i[27], pk_n[27], pk_cur[27], pk_vel[27];     /* 0 none, 1 strum, 2 arp */
++static int32_t pk_wait[27], pk_gate[27];                                      /* samples until the next note / the gate ends */
++
++static void play_note(track_t *t, uint32_t k, uint32_t x)
++{
++    uint32_t mc = trk_midi_ch(trk_index(t));
++    if (midi_local_held(t, x))
++        return;
++    in_key = (uint8_t)(k + 1u);
++    input_on(t, x, pk_vel[k]);
++    in_key = 0;
++    midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | (uint32_t)pk_vel[k] << 24);
++}
++static void play_note_off(track_t *t, uint32_t x)
++{
++    uint32_t mc = trk_midi_ch(trk_index(t));
++    if (midi_local_held(t, x))
++        return;
++    input_off(t, x);
++    midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
++}
++/* the samples between a strum's notes */
++static int32_t play_strum_samples(void) { return (int32_t)((uint32_t)cpk.strum * 5u * 44100u / 1000u); }
++/* once an audio block (keyboard_block): the next notes of the strums and the arps held */
++static void play_tick(void)
++{
++    uint32_t k;
++    for (k = 0; k < 27u; k++) {
++        track_t *t;
++        if (!pk_mode[k])
++            continue;
++        t = &trk[kb_trk[k]];
++        pk_wait[k] -= (int32_t)HALF_FRAMES;
++        if (pk_mode[k] == 1u) {                         /* STRUM: the next note, held until the key goes */
++            while (pk_mode[k] == 1u && pk_wait[k] <= 0) {
++                play_note(t, k, kb_chord[k][pk_i[k]]);
++                kb_chn[k] = (uint8_t)(pk_i[k] + 1u);
++                if (++pk_i[k] >= pk_n[k])
++                    pk_mode[k] = 0;
++                else
++                    pk_wait[k] += play_strum_samples() > 0 ? play_strum_samples() : 1;
++            }
++            continue;
++        }
++        if (pk_cur[k]) {                                /* ARP: the note sounding ends with its gate */
++            pk_gate[k] -= (int32_t)HALF_FRAMES;
++            if (pk_gate[k] <= 0) {
++                play_note_off(t, kb_chord[k][pk_cur[k] - 1u]);
++                pk_cur[k] = 0;
++            }
++        }
++        if (pk_wait[k] <= 0) {                          /* ARP: the next note round the chord, one a step */
++            uint32_t period = div_samples((uint32_t)t->p[P_ARATE]), i = pk_i[k] % pk_n[k];
++            if (pk_cur[k])
++                play_note_off(t, kb_chord[k][pk_cur[k] - 1u]);
++            play_note(t, k, kb_chord[k][i]);
++            pk_cur[k] = (uint8_t)(i + 1u);
++            pk_i[k]++;
++            pk_gate[k] = (int32_t)(period * (uint32_t)t->p[P_AGATE] / 128u);
++            pk_wait[k] += (int32_t)period;
++        }
++    }
++}
++/* key k down on a PLAY track with the black keys held: the chord, how many of its notes sound at once (0 for an arp, 1 for a
++ * strum: play_tick brings the rest); kb_chord[k] holds all of them, pk_* what is left to do */
++static uint32_t play_build(track_t *t, uint32_t k, uint32_t root, uint32_t vel)
++{
++    cshape_t s = play_shape(play_held());
++    int32_t r;
++    uint16_t mask;
++    uint32_t n = play_chord(t, &s, root, kb_chord[k], &r, &mask), i = trk_index(t), j;
++    chord_last[i].root = (uint8_t)clamp(r, 0, 127);
++    chord_last[i].mask = mask;
++    chord_last[i].n = (uint8_t)(n < CHORD_MAX ? n : CHORD_MAX);
++    for (j = 0; j < CHORD_MAX; j++)
++        chord_last[i].note[j] = j < n ? kb_chord[k][j] : 0u;
++    chord_last[i].gen++;
++    pk_vel[k] = (uint8_t)vel;
++    return n | (uint32_t)(s.arp ? 2 : s.strum ? 1 : 0) << 8;
++}
++
+ /* a chord's name from its root and tones (bit i: i semitones above the root): "C", "Cm7", "F#m7b5", "Gsus4",
+  * "A5" -> b (12 bytes) */
+ static void chord_name(char *b, uint32_t root, uint32_t mask)
 diff --git a/firmware/src/core.h b/firmware/src/core.h
-index bed1acf..c181658 100644
+index 4fc972e..237347f 100644
 --- a/firmware/src/core.h
 +++ b/firmware/src/core.h
 @@ -16,6 +16,14 @@
@@ -114,7 +614,7 @@ index bed1acf..c181658 100644
  #ifndef FELUCCA_FM4
  #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                    * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
-@@ -313,6 +321,12 @@ _Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
+@@ -235,6 +243,12 @@ _Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
   * (chain_v9_t, FUN6..FUN9): it loads as a section with the four on it (song_chain.c chain_from_v9) */
  #define CHAIN_SILENT 4u
  typedef struct { uint8_t slot[NTRK], repeat; } chain_row_t;
@@ -185,14 +685,14 @@ index 3c68a2e..1cae230 100644
          const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(k);
          if (usr_nz[k] && h->magic == SMP_USER_MAGIC && h->data_len <= SMP_USER_SIZE - SMP_USER_DATA)
 diff --git a/firmware/src/editor_menu.c b/firmware/src/editor_menu.c
-index 602698f..378d8c7 100644
+index 8b08300..3bfbbd0 100644
 --- a/firmware/src/editor_menu.c
 +++ b/firmware/src/editor_menu.c
-@@ -36,6 +36,7 @@ static const uint8_t ED_MENU[][2] = {
-                                                        * as MIDI IN: 1..16 OMNI OFF (values 0..17), MIDI */
-     {MI_MFOLLOW, 30},                                  /* 1.5.5 (#208): AUTO SELECT OFF / ON, a setting, MIDI */
-     {MI_SCRWAKE, 31},                                  /* 1.5.5: SCREEN WAKE +MIDI / PANEL, a setting, MIDI */
-+    {MI_SEQSW, 32},                                    /* 1.6_sequences: SEQ SWITCH NOW / END, SYSTEM (patbank.c) */
+@@ -40,6 +40,7 @@ static const uint8_t ED_MENU[][2] = {
+     {MI_CPU2, 32},                                     /* 1.6.1, the second core (Discussion #141): 2ND CORE OFF / ON (BETA),
+                                                         * SYSTEM, from the next power-on (a FELUCCA_CPU2=0 build: 0..31) */
+ #endif
++    {MI_SEQSW, 33},                                    /* 1.6.1_sequences: SEQ SWITCH NOW / END, SYSTEM (patbank.c; 32 in a FELUCCA_CPU2=0 build) */
  };
  #define ED_MENU_N NELEM(ED_MENU)
  
@@ -211,19 +711,19 @@ index b6245f4..de691f1 100644
          base = (uint32_t)(uintptr_t)(smp_user_xip(k) + SMP_USER_DATA) - (uint32_t)(uintptr_t)SMP_DATA;
          for (nz = h->nz, i = 0; i < nz; i++) {
 diff --git a/firmware/src/felucca.c b/firmware/src/felucca.c
-index 2d98b8f..b927f87 100644
+index 56fd98a..7d3732b 100644
 --- a/firmware/src/felucca.c
 +++ b/firmware/src/felucca.c
-@@ -32,7 +32,7 @@
- #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
- #endif
+@@ -40,7 +40,7 @@
+ #define FM1_CPU1_USED FELUCCA_CPU2   /* hal/fm1_sys.h: the second core is built in; every reset holds it first (its
+                                       * waiting loop is in RAM the ROM and the SPL use at boot) */
  #ifndef FELUCCA_VERSION
--#define FELUCCA_VERSION "v1.6" /* shown in the menu, the console and the editor; build.py --release X.Y */
-+#define FELUCCA_VERSION "v1.6_sequences" /* shown in the splash, the menu (ABOUT, INFO), the console and the editor; build.py --release X.Y */
+-#define FELUCCA_VERSION "v1.6.1" /* shown in the menu, the console and the editor; build.py --release X.Y */
++#define FELUCCA_VERSION "v1.6.1_sequences" /* shown in the splash, the menu (ABOUT, INFO), the console and the editor; build.py --release X.Y */
  #endif
  #if FELUCCA_OTA && !FELUCCA_FLASH
  #error "FELUCCA_OTA needs FELUCCA_FLASH"
-@@ -93,6 +93,7 @@
+@@ -107,6 +107,7 @@
  #endif
  #include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
  #include "project.c"
@@ -232,22 +732,24 @@ index 2d98b8f..b927f87 100644
  #include "ota.c"
  #include "ota_hw.c"
 diff --git a/firmware/src/icons.c b/firmware/src/icons.c
-index 4df1355..b5d324c 100644
+index 4df1355..592e9aa 100644
 --- a/firmware/src/icons.c
 +++ b/firmware/src/icons.c
-@@ -271,6 +271,7 @@ static uint32_t page_icon(const page_t *pg)
+@@ -271,6 +271,9 @@ static uint32_t page_icon(const page_t *pg)
      switch (pg->graph) {
      case GR_TRK: return ICON_X_MIXER;         /* MIXER (HOME): vertical faders */
      case GR_PATS: return ICON_X_PATTERN;      /* SAVE > PHRASES: the pattern loader */
 +    case GR_SEQS: return ICON_X_PATTERN;      /* SEQ > SEQUENCE */
++    case GR_GENS: return ICON_ARP;            /* ARP > GEN */
++    case GR_CPK: return ICON_SCALE;           /* SAVE > CHORDS */
      case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
      case GR_EVENTS: return motion_icon();     /* AUTOMATION */
      default: return ICON_NONE;
 diff --git a/firmware/src/main.c b/firmware/src/main.c
-index 30a7588..fe39087 100644
+index 4961c8d..1f407f4 100644
 --- a/firmware/src/main.c
 +++ b/firmware/src/main.c
-@@ -274,6 +274,7 @@ static void fm1_main(void)
+@@ -306,6 +306,7 @@ static void fm1_main(void)
          felucca_dbg.stage = 1;
          ui_input();
          settings_poll();                              /* queued settings save: only while stopped */
@@ -256,44 +758,45 @@ index 30a7588..fe39087 100644
          felucca_dbg.stage = 2;
          ui_leds();
 diff --git a/firmware/src/menu_items.c b/firmware/src/menu_items.c
-index fa838a2..6e7a87d 100644
+index 23735bb..023a664 100644
 --- a/firmware/src/menu_items.c
 +++ b/firmware/src/menu_items.c
-@@ -15,14 +15,14 @@
+@@ -15,7 +15,7 @@
   * nothing of theirs is in the settings record (MI_PROJECT: menu_get / menu_put read and write song.g) */
  enum { MI_COLOR, MI_STYLE, MI_LARGE, MI_ANIM, MI_LEDS, MI_SCROFF, MI_SCOPE, MI_HOME, MI_HOLD, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SCLLED,
         MI_PREVIEW, MI_CHADD, MI_SELECT, MI_LOWCUT, MI_USB,
--       MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_TCH1, MI_TCH2, MI_TCH3, MI_TCH4, MI_MFOLLOW, MI_SCRWAKE, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_HELP, MI_PANEL, MI_INFO,
-+       MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_TCH1, MI_TCH2, MI_TCH3, MI_TCH4, MI_MFOLLOW, MI_SCRWAKE, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_HELP, MI_SEQSW, MI_PANEL, MI_INFO,
-        MI_ABOUT, MI_COUNT };
-                                                        /* (1.1: the metronome's rows in AUDIO; 1.2: RESTORE LAST in
-                                                         * SYSTEM, SCALE LEDS STEP PREVIEW CHORD ENTRY in CONTROL, SCOPE in
+-       MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_TCH1, MI_TCH2, MI_TCH3, MI_TCH4, MI_MFOLLOW, MI_SCRWAKE, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_HELP,
++       MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_TCH1, MI_TCH2, MI_TCH3, MI_TCH4, MI_MFOLLOW, MI_SCRWAKE, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_HELP, MI_SEQSW,
+ #if FELUCCA_CPU2
+        MI_CPU2,                                        /* (not in a FELUCCA_CPU2=0 build: core.h) */
+ #endif
+@@ -25,7 +25,7 @@ enum { MI_COLOR, MI_STYLE, MI_LARGE, MI_ANIM, MI_LEDS, MI_SCROFF, MI_SCOPE, MI_H
                                                          * DISPLAY, TUNE in AUDIO, MIDI IN in MIDI, INFO in SYSTEM;
                                                          * 1.3: HOME in DISPLAY; 1.5: HELP in SYSTEM; 1.5.5: SELECT
                                                          * in CONTROL, T1..T4 CHANNEL, AUTO SELECT and SCREEN WAKE
--                                                        * in MIDI) */
-+                                                        * in MIDI; 1.6_sequences: SEQ SWITCH in SYSTEM) */
+-                                                        * in MIDI; 1.6.1: 2ND CORE in SYSTEM) */
++                                                        * in MIDI; 1.6.1: 2ND CORE in SYSTEM; 1.6.1_sequences: SEQ SWITCH in SYSTEM) */
  #define MI_VALUES MI_PANEL
- static int menu_valued(uint32_t row) { return row < MI_VALUES && row != MI_LCLEAR; }   /* (a row with a value) */
- #define MI_PROJECT(row) ((row) == MI_TUNE || ((row) >= MI_MIDIIN && (row) <= MI_TCH4))   /* the project's values (song.g,
-@@ -32,7 +32,7 @@ static const char *const MI_NAME[MI_COUNT] = {"COLOR", "STYLE", "LARGE", "ANIM",
+ #if FELUCCA_CPU2
+ #define MI_TEXT(row) ((row) == MI_CPU2)                /* OFF / ON (BETA): its values as words, not a switch (ui_menu.c) */
+@@ -40,7 +40,7 @@ static const char *const MI_NAME[MI_COUNT] = {"COLOR", "STYLE", "LARGE", "ANIM",
                                                "FX LATCH", "BPM LOCK", "SCALE LEDS", "STEP PREVIEW", "CHORD ENTRY", "SELECT",
                                                "SPEAKER EQ", "USB LEVEL", "CLICK", "CLICK LEVEL", "COUNT-IN", "TUNE",
                                                "MIDI IN", "T1 CHANNEL", "T2 CHANNEL", "T3 CHANNEL", "T4 CHANNEL",
--                                              "AUTO SELECT", "SCREEN WAKE", "LEARN CLEAR", "USB SERIAL", "RESTORE LAST", "HELP", "CALIBRATION", "INFO",
-+                                              "AUTO SELECT", "SCREEN WAKE", "LEARN CLEAR", "USB SERIAL", "RESTORE LAST", "HELP", "SEQ SWITCH", "CALIBRATION", "INFO",
-                                               "ABOUT"};
- /* 1.0.5: the MENU's tabs (ui_menu.c: ALGORITHM steps between them, PRESETS among one tab's rows; the editor gets a
-  * row's tab after its MENU_DESC reply). A tab's rows follow each other in MI order (tests/ui_test.c checks it); at
-@@ -61,6 +61,7 @@ static const uint8_t MI_TAB[MI_COUNT] = {
+-                                              "AUTO SELECT", "SCREEN WAKE", "LEARN CLEAR", "USB SERIAL", "RESTORE LAST", "HELP",
++                                              "AUTO SELECT", "SCREEN WAKE", "LEARN CLEAR", "USB SERIAL", "RESTORE LAST", "HELP", "SEQ SWITCH",
+ #if FELUCCA_CPU2
+                                               "2ND CORE",
+ #endif
+@@ -73,6 +73,7 @@ static const uint8_t MI_TAB[MI_COUNT] = {
      MTAB_MIDI,                                                              /* SCREEN WAKE (1.5.5: DISPLAY is full) */
      MTAB_MIDI,                                                              /* LEARN CLEAR (1.5) */
      MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* USB SERIAL, RESTORE LAST, HELP (1.5) */
-+    MTAB_SYSTEM,                                                            /* SEQ SWITCH (1.6_sequences) */
-     MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* CALIBRATION, INFO (1.2), ABOUT */
- };
- /* TUNE: the project's tuning in cents (G_TUNE, -50..+50); as a row its values 0..TUNE_N - 1 (value - TUNE_MIN). The
-@@ -102,6 +103,7 @@ static const menu_flag_t MENU_FLAGS[] = {
++    MTAB_SYSTEM,                                                            /* SEQ SWITCH (1.6.1_sequences) */
+ #if FELUCCA_CPU2
+     MTAB_SYSTEM,                                                            /* 2ND CORE (1.6.1) */
+ #endif
+@@ -117,6 +118,7 @@ static const menu_flag_t MENU_FLAGS[] = {
      {MI_SCOPE, PREF_SCOPE_MIX, {"OUT", "MIX"}},        /* 1.2, Discussion #165: MIX, the scope before MASTER (fx.c) */
      {MI_PREVIEW, PREF_PREVIEW, {"OFF", "ON"}},         /* 1.2, Discussion #169: ON, the cursor's step sounds (ui_input.c) */
      {MI_CHADD, PREF_CHORD_ADD, {"HOLD", "ADD"}},       /* 1.2, #155: ADD, keys add to the cursor step (ui_input.c) */
@@ -301,20 +804,72 @@ index fa838a2..6e7a87d 100644
      {MI_HELP, PREF_HELP, {"OFF", "ON"}},               /* 1.5, Discussion #156: ON, a hint per page / layer (ui_help.c) */
      {MI_MFOLLOW, PREF_MIDI_FOLLOW, {"OFF", "ON"}},     /* 1.5.5, #208: ON, MIDI IN notes select their track (ui_input.c) */
      {MI_SCRWAKE, PREF_WAKE_PANEL, {"+MIDI", "PANEL"}}, /* 1.5.5: PANEL, only the panel wakes SCREEN OFF (ui.c scr_input) */
+@@ -192,7 +194,7 @@ static uint32_t menu_get(uint32_t row)
+     const menu_flag_t *f = menu_flag(row);
+     uint32_t i = 0;
+     if (f)
+-        return ((ui_prefs | (uint32_t)ui_rec_prefs << 8 | (uint32_t)ui_prefs2 << 16) & f->bit) != 0;
++        return ((ui_prefs | (uint32_t)ui_rec_prefs << 8 | (uint32_t)ui_prefs2 << 16 | (uint32_t)ui_prefs3 << 24) & f->bit) != 0;
+     switch (row) {
+     case MI_COLOR: return palette_cur();
+     case MI_STYLE: return ui_style == ST_LINE;
+@@ -258,7 +260,9 @@ static void menu_put(uint32_t row, uint32_t v)
+ {
+     const menu_flag_t *f = menu_flag(row);
+     if (f) {
+-        if (f->bit & PREF_X)
++        if (f->bit & PREF_Y)
++            ui_prefs3 = (uint8_t)(v ? ui_prefs3 | f->bit >> 24 : ui_prefs3 & ~(f->bit >> 24));
++        else if (f->bit & PREF_X)
+             ui_prefs2 = (uint8_t)(v ? ui_prefs2 | f->bit >> 16 : ui_prefs2 & ~(f->bit >> 16));
+         else if (f->bit & PREF_REC)
+             ui_rec_prefs = (uint8_t)(v ? ui_rec_prefs | f->bit >> 8 : ui_rec_prefs & ~(f->bit >> 8));
 diff --git a/firmware/src/params.c b/firmware/src/params.c
-index 960628a..6edb839 100644
+index 960628a..b480110 100644
 --- a/firmware/src/params.c
 +++ b/firmware/src/params.c
+@@ -9,7 +9,7 @@ static const uint8_t LSYNC_DIV[11] = {0, 9, 8, 7, 6, 0, 1, 4, 2, 5, 3};
+ static const char *const N_LTRIG[] = {"NOTE", "FREE"};
+ static const char *const N_LPOL[] = {"BI", "UNI"};
+ static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT",   /* (append-only: seq.c AM_*) */
+-                                       "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"};
++                                       "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD", "GEN"};
+ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
+ /* the delay's TIME (G_DTIME): N_DIV's ten (their values kept), then 1.5.1's dotted ones appended (stored values:
+  * append-only). A list of its own: ARP RATE, SEQ DIV and LFO SYNC keep N_DIV's ten (fx.c delay_samples) */
+@@ -39,7 +39,7 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
+  * they play (seq.c seq_step; the steps keep what was written). Append-only: older projects hold 0..2 */
+ static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "SEQ", "SEQ+T"};
+ /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
+-static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
++static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW", "STR3", "STR7", "PLAY"};
+ static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
+ static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
+ static const char *const N_GLMODE[] = {"RATE", "TIME"};
 @@ -434,7 +434,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
  enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
  enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
         GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
 -       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
-+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_SEQS };   /* GR_SEQS (1.6): SEQ > SEQUENCE, the eight sequences of each track */   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
++       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_SEQS, GR_GENS, GR_CPK };   /* GR_SEQS (1.6): SEQ > SEQUENCE, the eight sequences of each track */   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
  
  typedef struct {
      const char *title;
-@@ -493,6 +493,9 @@ static const page_t PAGES[] = {
+@@ -485,14 +485,23 @@ static const page_t PAGES[] = {
+     {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, {0xFF, 0xFF, 0xFF, 0xFF}},    /* pattern loader: PAT LOAD (ui.c pat_load);
+                                                                              * the tap after PRESETS (up to 1.1.5 SEQ's) */
+     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
++#if FELUCCA_PATBANK
++    {"CHORDS", FAM_SAVE, SC_TRK, GR_CPK, {0, 1, 2, 3}},    /* 1.6.1_sequences: CHRD PLAY's chord packs: what each black key does (chord.c cpk) */
++#endif
+     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
+     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
+     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
++#if FELUCCA_PATBANK
++    {"GEN", FAM_ARP, SC_TRK, GR_GENS, {0, 1, 2, 3}},   /* 1.6_sequences: MODE GEN's DENS, CHORD, EVOLVE, SCL of the selected track (ui_input.c gen_edit) */
++#endif
+     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL
                                                               * (ui.c detail_on, ui_input.c sd_turn) */
      {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, {0xFF, 0xFF, 0xFF, 0xFF}},  /* the locks, events, CHANCE and RATCH as a
                                                                               * list, PLAY and CLEAR (ui_events.c) */
@@ -326,10 +881,10 @@ index 960628a..6edb839 100644
      {"MIXER", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},
 diff --git a/firmware/src/patbank.c b/firmware/src/patbank.c
 new file mode 100644
-index 0000000..240fb68
+index 0000000..c09837b
 --- /dev/null
 +++ b/firmware/src/patbank.c
-@@ -0,0 +1,316 @@
+@@ -0,0 +1,353 @@
 +/* SPDX-License-Identifier: GPL-3.0-only
 + * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 +/* Sequences: eight per track (FELUCCA_PATBANK). A track plays one of them at a time: trk[].step is the one playing, the
@@ -591,7 +1146,7 @@ index 0000000..240fb68
 +        pb_next[t] = 0;
 +        return 2;
 +    }
-+    if ((ui_prefs2 & (PREF_SEQ_END >> 16)) && song.playing && s < PB_N) {
++    if ((ui_prefs3 & (PREF_SEQ_END >> 24)) && song.playing && s < PB_N) {
 +        pb_next[t] = (uint8_t)(s + 1u);
 +        return 1;
 +    }
@@ -638,31 +1193,70 @@ index 0000000..240fb68
 +{
 +    uint32_t t;
 +    pb_clear_all();
++    gen_defaults();                                      /* (the ARP's GEN knobs: the store's, if it has them, come after) */
++    cpk_defaults();                                      /* (CHRD PLAY's chord packs, the same) */
 +    for (t = 0; t < NTRK; t++)
 +        pb_sync(t);
 +    pb_dirty = 0x3Fu;
 +    pb_gen++;
++}
++
++/* ---- SAVE > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
++static void cpk_touch(void)                             /* the packs changed: saved with the music (patbank_store.c) */
++{
++    pb_dirty |= 1u << PB_META_O;
++    pb_gen++;
++}
++/* SAVE > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
++static void cpk_edit(uint32_t slot, int32_t steps)
++{
++    if (slot == 0u) {
++        cpk_sel = (uint8_t)clamp((int32_t)cpk_sel + steps, 0, (int32_t)CPK_N - 1);
++        cpk = *cpk_pack(cpk_sel);
++    } else if (slot == 1u)
++        cpk_key = (uint8_t)clamp((int32_t)cpk_key + steps, 0, (int32_t)CPK_KEYS - 1);
++    else if (slot == 2u)
++        cpk.act[cpk_key] = (uint8_t)clamp((int32_t)cpk.act[cpk_key] + steps, 0, (int32_t)CA_N - 1);
++    else
++        cpk.strum = (uint8_t)clamp((int32_t)cpk.strum + steps, 0, (int32_t)CPK_STRUM_MAX);
++    cpk_touch();
++    ui.force = 1;
++}
++/* OCT+: what the black keys do now, kept as the user's pack picked (a built in one is not written over) */
++static void cpk_save(void)
++{
++    char nb[8], mb[16] = "SAVED ";
++    if (cpk_sel < CPK_NF) {
++        ui_message("PICK A USER PACK");
++        return;
++    }
++    cpk_user[cpk_sel - CPK_NF] = cpk;
++    str_cpy(mb + 6, cpk_name(cpk_sel, nb), 9);
++    ui_message(mb);
++    cpk_touch();
 +}
 +#else
 +#define pb_gen 0u
 +#endif
 diff --git a/firmware/src/patbank_store.c b/firmware/src/patbank_store.c
 new file mode 100644
-index 0000000..e684c2b
+index 0000000..c48a986
 --- /dev/null
 +++ b/firmware/src/patbank_store.c
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,237 @@
 +/* SPDX-License-Identifier: GPL-3.0-only
 + * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 +/* The sequence banks in flash (patbank.c): store s (0..3 the projects A..D, PB_LIVE the music as it is now), six objects
-+ * OBJ_PB0 + 6 s + o, each an A/B pair of storage.c. Payload: 8 bytes {'P', 'B', 1, o, 0 x 4}, then
++ * OBJ_PB0 + 6 s + o, each an A/B pair of storage.c. Payload: 8 bytes {'P', 'B', 1, o, 0 x 4}, then (objects 0..2 are version 2 since
++ * the ARP's GEN: their last four bytes are GEN's DENS, CHORD, EVOLVE of the four tracks; the meta object: the chained masks there)
 + *   o < 5   six sequences (576 bytes each), 3464 bytes
 + *   o = 5   the last two sequences, the sequence each track plays (4), the 32 LENs, per sequence its automation record
 + *           count and ON (2 bytes), then the records of the sequences with some (3 bytes each, in order); the playing
 + *           sequence's are in the project record, not here. At most PB_META_RECS of them: more is refused (pb_meta_ok) */
 +#if FELUCCA_PATBANK && FELUCCA_FLASH
 +#define PB_META_FIX (PB_HDR + 2u * PB_PAT_B + NTRK + PB_NSEQ + 2u * PB_NSEQ)
-+#define PB_META_RECS ((PB_OBJ_MAX - PB_META_FIX) / 3u)
++#define PB_CPK_B ((1u + CPK_USER) * (uint32_t)sizeof(cpack_t))   /* the chord packs (chord.c), version 3, after the records */
++#define PB_META_RECS ((PB_OBJ_MAX - PB_META_FIX - PB_CPK_B) / 3u)
 +/* The object's RAM is the project staging RAM (project.c proj_wire_u): a save, a load and the autosave already take turns with
 + * it, and a backup noticing proj_wire_gen knows it was reused. It is not kept a 3.8 KB buffer of its own: the pool is full */
 +#define pb_wire (proj_wire_u.raw)
@@ -687,8 +1281,13 @@ index 0000000..e684c2b
 +    uint32_t n = pb_obj_pats(o), pos = PB_HDR, q;
 +    memset(pb_wire, 0, PB_HDR);
 +    pb_wire[0] = 'P'; pb_wire[1] = 'B'; pb_wire[2] = 1; pb_wire[3] = (uint8_t)o;
-+    if (o == PB_META_O) {                               /* CHAIN: per track the mask of the chained sequences (version 2) */
++    if (o < GS_N) {                                     /* GEN (version 2): the objects 0..2 carry DENS, CHORD, EVOLVE */
 +        pb_wire[2] = 2;
++        for (q = 0; q < NTRK; q++)
++            pb_wire[4u + q] = gen_set[q][o];
++    }
++    if (o == PB_META_O) {                               /* CHAIN: per track the mask of the chained sequences (version 2); 3: the chord packs */
++        pb_wire[2] = 3;
 +        for (q = 0; q < NTRK; q++)
 +            pb_wire[4u + q] = pb_cmask[q];
 +    }
@@ -707,6 +1306,11 @@ index 0000000..e684c2b
 +                memcpy(pb_wire + pos, pb_mo[q].ev, pb_mo[q].count * sizeof(motion_event_t));
 +                pos += pb_mo[q].count * (uint32_t)sizeof(motion_event_t);
 +            }
++        memcpy(pb_wire + pos, &cpk, sizeof cpk); pos += (uint32_t)sizeof cpk;           /* the chord packs: what the black keys do, the user's */
++        for (q = 0; q < CPK_USER; q++) {
++            memcpy(pb_wire + pos, &cpk_user[q], sizeof(cpack_t));
++            pos += (uint32_t)sizeof(cpack_t);
++        }
 +    }
 +    return pos;
 +}
@@ -737,7 +1341,7 @@ index 0000000..e684c2b
 +    uint8_t cur[NTRK], len[PB_NSEQ], cnt[PB_NSEQ], on[PB_NSEQ];
 +    pb_reset_to_live();
 +    n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
++    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
 +        return 0;
 +    pos = PB_HDR + 2u * PB_PAT_B;
 +    memcpy(cur, pb_wire + pos, NTRK); pos += NTRK;
@@ -759,7 +1363,7 @@ index 0000000..e684c2b
 +    }
 +    memcpy(pb_pat[PB_META_O * PB_PER], pb_wire + PB_HDR, 2u * PB_PAT_B);
 +    for (t = 0; t < NTRK; t++)                          /* CHAIN: version 2 has the masks (version 1: a start and a length: none) */
-+        pb_cmask[t] = pb_wire[2] == 2 ? pb_wire[4u + t] : 0u;
++        pb_cmask[t] = pb_wire[2] >= 2 ? pb_wire[4u + t] : 0u;
 +    for (q = 0; q < PB_NSEQ; q++) {
 +        uint32_t k;
 +        pb_mo[q].count = 0;
@@ -770,13 +1374,29 @@ index 0000000..e684c2b
 +            memcpy(&pb_mo[q].ev[k], pb_wire + pos, sizeof(motion_event_t));
 +        pb_mo[q].count = cnt[q];
 +    }
++    if (pb_wire[2] == 3 && pos + PB_CPK_B <= n) {       /* the chord packs (version 3; an earlier one: the built in ones pb_reset_to_live set) */
++        cpack_t pk[1u + CPK_USER];
++        uint32_t ok = 1;
++        memcpy(pk, pb_wire + pos, sizeof pk);
++        for (q = 0; q < 1u + CPK_USER; q++)
++            ok &= (uint32_t)cpk_valid(&pk[q]);
++        if (ok) {
++            cpk = pk[0];
++            for (q = 0; q < CPK_USER; q++)
++                cpk_user[q] = pk[1u + q];
++        }
++    }
 +    for (q = 0; q < PB_NSEQ; q++)
 +        pb_len[q] = len[q] >= (uint32_t)TP[P_SLEN].min && len[q] <= (uint32_t)TP[P_SLEN].max ? len[q] : (uint8_t)TP[P_SLEN].def;
 +    for (o = 0; o < PB_META_O; o++) {
 +        n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + o, pb_wire, sizeof pb_wire);
-+        if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' && pb_wire[2] == 1 &&
-+            pb_wire[3] == o)
++        if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' &&
++            (pb_wire[2] == 1 || pb_wire[2] == 2) && pb_wire[3] == o) {
 +            memcpy(pb_pat[o * PB_PER], pb_wire + PB_HDR, PB_PER * PB_PAT_B);
++            if (o < GS_N && pb_wire[2] == 2)             /* GEN's knobs (1: stored before it: the defaults pb_reset_to_live set) */
++                for (t = 0; t < NTRK; t++)
++                    gen_set[t][o] = pb_wire[4u + t] < 128u ? pb_wire[4u + t] : gen_set[t][o];
++        }
 +    }
 +    for (t = 0; t < NTRK; t++) {            /* the sequence a track plays is the loaded music's (the record) */
 +        pb_cur[t] = cur[t];
@@ -797,7 +1417,7 @@ index 0000000..e684c2b
 +    uint32_t n, t;
 +    memset(cur, 0, NTRK);
 +    n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
++    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
 +        return 0;
 +    for (t = 0; t < NTRK; t++)
 +        cur[t] = pb_wire[PB_HDR + 2u * PB_PAT_B + t] < PB_N ? pb_wire[PB_HDR + 2u * PB_PAT_B + t] : 0u;
@@ -815,7 +1435,7 @@ index 0000000..e684c2b
 +    *len = (uint8_t)TP[P_SLEN].def;
 +    memset(mo, 0, sizeof *mo);
 +    n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
++    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
 +        return 1;
 +    (void)cur;
 +    pos = PB_HDR + 2u * PB_PAT_B + NTRK;
@@ -838,8 +1458,8 @@ index 0000000..e684c2b
 +    }
 +    o = qi / PB_PER;
 +    n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + o, pb_wire, sizeof pb_wire);
-+    if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' && pb_wire[2] == 1 &&
-+        pb_wire[3] == o)
++    if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' &&
++        (pb_wire[2] == 1 || pb_wire[2] == 2) && pb_wire[3] == o)
 +        (void)pb_unpack_pat(st, pb_wire + PB_HDR + (qi % PB_PER) * PB_PAT_B);
 +    return 0;
 +}
@@ -862,7 +1482,7 @@ index 0000000..e684c2b
 +}
 +#endif
 diff --git a/firmware/src/project.c b/firmware/src/project.c
-index c972d6e..531fb67 100644
+index c972d6e..290bce1 100644
 --- a/firmware/src/project.c
 +++ b/firmware/src/project.c
 @@ -483,6 +483,14 @@ static void proj_fm6_init(project_t *q)
@@ -896,17 +1516,18 @@ index c972d6e..531fb67 100644
      project_capture(p);
      if (name) {
          memset(p->name, 0, sizeof p->name);
-@@ -1123,6 +1140,9 @@ static int project_restore_runtime(const project_t *input)
+@@ -1123,6 +1140,10 @@ static int project_restore_runtime(const project_t *input)
          pat_sig[k] = ~steps_sig(t);                     /* a project's steps are the user's */
      }
      undo_depth--;
++    memset(gen, 0, sizeof gen);                         /* (1.6_sequences: GEN makes its pattern anew) */
 +#if FELUCCA_PATBANK
 +    pb_reset_to_live();                                 /* (the sequences: the loaded music is sequence 1; a store fills the rest) */
 +#endif
      sync_reload = 1;
      ui.force = 1;
      ui_message("LOADED");
-@@ -1139,6 +1159,10 @@ static void project_load(uint32_t slot)
+@@ -1139,6 +1160,10 @@ static void project_load(uint32_t slot)
      if (!project_restore_runtime(&proj_scratch)) {
          proj_cur = (uint8_t)(slot & 3u);
          pat_from_set((slot & 3u) + 1u);
@@ -917,7 +1538,7 @@ index c972d6e..531fb67 100644
      }
  }
  
-@@ -1194,18 +1218,47 @@ static int project_used(uint32_t slot) { return proj_import(&proj_scratch, &proj
+@@ -1194,18 +1219,47 @@ static int project_used(uint32_t slot) { return proj_import(&proj_scratch, &proj
  static uint32_t chain_prepare(void)
  {
      uint32_t i, k, j, used = 0;
@@ -970,7 +1591,7 @@ index c972d6e..531fb67 100644
          }
      chain.config = chain_config;
      for (i = 0; i < 4u; i++)
-@@ -1232,6 +1285,30 @@ static uint32_t chain_prepare(void)
+@@ -1232,6 +1286,30 @@ static uint32_t chain_prepare(void)
                      chain.source[i].timing[k][j] = (int16_t)clamp(p->t[k].p[P_SLEN + j],
                          TP[P_SLEN + j].min, TP[P_SLEN + j].max);
              }
@@ -1001,7 +1622,7 @@ index c972d6e..531fb67 100644
          }
      RING_PUBLISH();
      chain.armed = 1;
-@@ -1329,6 +1406,10 @@ static uint32_t autosave_sig(void)
+@@ -1329,6 +1407,10 @@ static uint32_t autosave_sig(void)
              h = as_mix(h, &song.g[i], sizeof song.g[i]);
      h = as_mix(h, song.mch, sizeof song.mch);           /* (1.5.5: MIDI IN TRACK's channels, the project's) */
      h = as_mix(h, &motion, sizeof motion);
@@ -1012,7 +1633,7 @@ index c972d6e..531fb67 100644
      h = as_mix(h, &chain_config, sizeof chain_config);
      return as_mix(h, proj_name, sizeof proj_name);
  }
-@@ -1367,6 +1448,12 @@ static void autosave_poll(void)
+@@ -1367,6 +1449,12 @@ static void autosave_poll(void)
          return;
      as.last = fm1_ms;
      as.wrote = 1;
@@ -1025,7 +1646,7 @@ index c972d6e..531fb67 100644
      project_capture(&proj_scratch);
      proj_wire_gen++;
      as.err = !proj_pack(&proj_wire, &proj_scratch) || st_save(OBJ_AUTOSAVE, &proj_wire, sizeof proj_wire) != 0;
-@@ -1391,6 +1478,9 @@ static int autosave_boot(int allowed)
+@@ -1391,6 +1479,9 @@ static int autosave_boot(int allowed)
          if (n > 0 && proj_import(&proj_scratch, &proj_wire, n)) {
              proj_bound(&proj_scratch);
              if (!project_restore_runtime(&proj_scratch)) {
@@ -1036,10 +1657,289 @@ index c972d6e..531fb67 100644
                  rc = 1;
              }
 diff --git a/firmware/src/seq.c b/firmware/src/seq.c
-index 2d69d0f..988c6b3 100644
+index 2d69d0f..a6c50bc 100644
 --- a/firmware/src/seq.c
 +++ b/firmware/src/seq.c
-@@ -1059,6 +1059,8 @@ static __attribute__((noinline)) uint32_t seq_time(track_t *t, uint32_t idx, uin
+@@ -229,7 +229,10 @@ static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) &
+  * C E C G (the bottom one); WALK a random step up or down the list (bouncing off its ends); CHORD all the held
+  * notes together (the first 4), an octave higher each step through OCT */
+ enum { AM_OFF, AM_UP, AM_DN, AM_UPDN, AM_RND, AM_ORD, AM_REPEAT, AM_DNUP, AM_UP8, AM_CONV, AM_DIVG, AM_PINKY,
+-       AM_THUMB, AM_WALK, AM_CHORD };
++       AM_THUMB, AM_WALK, AM_CHORD, AM_GEN };
++/* 1.6_sequences: GEN plays by itself while the music plays, notes of the track's scale (ROOT, SCALE, TRN, over OCT octaves), and
++ * the keys play as they do with the arp OFF. The notes the arp's keys feed (every mode but OFF and GEN) */
++static int arp_keys(const track_t *t) { return t->p[P_AMODE] && t->p[P_AMODE] != AM_GEN; }
+ 
+ static void arp_forget(track_t *t)               /* (its notes ended otherwise: trk_all_off) */
+ {
+@@ -287,6 +290,149 @@ static void arp_off(track_t *t)                  /* the sounding arp note(s) end
+     t->arp_note = 0;
+ }
+ 
++
++/* ----------------------------------------------------------------- GEN --- */
++/* 1.6_sequences: the ARP's GEN mode, generative music that evolves. A loop of LEN (at most GEN_N) arp steps (RATE, SWG, GATE and
++ * PROB as the arp's) whose steps each hold, fixed by chance when the track's pattern is made: a place in the scale (DEG, a
++ * random walk over OCT octaves of the track's scale), two thresholds (THR for DENSITY: the step plays when it is below DENS;
++ * CTHR for CHORD) and a voicing / loudness (AUX). Turning DENS or CHORD therefore adds or takes away notes and chords of the
++ * same pattern, and ROOT, SCALE, TRN and OCT re-pitch it as they are turned. EVOLVE: when a loop ends, each step changes with
++ * the chance EVOLVE / 128, mostly a move of a step or two in the scale, now and then a new threshold. CHORD c: a step is a
++ * chord when its CTHR is below 2 c (all of them from 64), the chord richer as c grows: a fifth or a third (1..31), triads
++ * with their suspensions (32..63), sevenths (64..95), 9ths and quartal stacks (96..127), up to four notes (arp_ch).
++ * The pattern is made when GEN starts and when the project is loaded; it keeps through STOP and PLAY. Main loop / audio ISR
++ * as the arp's (arp_fire: once a step, not inlined). */
++#define GEN_N 32u
++typedef struct { uint8_t deg[GEN_N], thr[GEN_N], cthr[GEN_N], aux[GEN_N], ready, last; uint32_t rnd; } gen_t;
++static gen_t gen[NTRK];
++/* the knobs of GEN per track (the GEN page; saved with the sequence banks, patbank_store.c): not track parameters, so no
++ * project format, user preset or protocol changes */
++enum { GS_DENS, GS_CHORD, GS_EVOLVE, GS_N };
++static uint8_t gen_set[NTRK][GS_N] = {{64, 0, 24}, {64, 0, 24}, {64, 0, 24}, {64, 0, 24}};
++static void gen_defaults(void)
++{
++    uint32_t t;
++    for (t = 0; t < NTRK; t++) {
++        gen_set[t][GS_DENS] = 64; gen_set[t][GS_CHORD] = 0; gen_set[t][GS_EVOLVE] = 24;
++    }
++}
++
++static uint32_t gen_rand(gen_t *g)               /* xorshift32: its own, so the pattern is its own */
++{
++    uint32_t x = g->rnd;
++    x ^= x << 13;
++    x ^= x >> 17;
++    x ^= x << 5;
++    g->rnd = x ? x : 0x9E3779B9u;
++    return g->rnd >> 8;
++}
++/* the notes of the track's scale: intervals (semitones above the root) of the 12-bit mask, how many */
++static uint32_t gen_scale(const track_t *t, uint8_t *iv)
++{
++    uint32_t mask = scale_mask(t), i, n = 0;
++    for (i = 0; i < 12u; i++)
++        if ((mask >> i) & 1u)
++            iv[n++] = (uint8_t)i;
++    if (!n)
++        iv[n++] = 0;
++    return n;
++}
++static uint32_t gen_range(uint32_t n, const track_t *t) { return n * (uint32_t)(t->p[P_AOCT] > 0 ? t->p[P_AOCT] : 1); }
++/* degree d of the scale (from the root a C3 up, ROOT, TRN) as a note */
++static uint32_t gen_note(const track_t *t, const uint8_t *iv, uint32_t n, uint32_t d)
++{
++    return (uint32_t)clamp(48 + (int32_t)t->p[P_ROOT] + 12 * (int32_t)(d / n) + iv[d % n] + t->p[P_TRANS], 0, 127);
++}
++static void gen_fill(const track_t *t, gen_t *g)
++{
++    uint8_t iv[12];
++    uint32_t i, n = gen_scale(t, iv), r = gen_range(n, t), d = r / 2u;
++    g->rnd = ((uint32_t)rng() << 16 ^ (uint32_t)rng() ^ (uint32_t)trk_index(t) * 0x01000193u) | 1u;
++    for (i = 0; i < GEN_N; i++) {
++        int32_t m = (int32_t)(gen_rand(g) % 5u) - 2;     /* a walk: mostly near the last note, drawn back to the middle */
++        if ((d > r * 3u / 4u && m > 0) || (d < r / 4u && m < 0))
++            m = -m;
++        d = (uint32_t)clamp((int32_t)d + m, 0, (int32_t)r - 1);
++        g->deg[i] = (uint8_t)d;
++        g->thr[i] = (uint8_t)(gen_rand(g) & 127u);
++        g->cthr[i] = (uint8_t)(gen_rand(g) & 127u);
++        g->aux[i] = (uint8_t)(gen_rand(g) & 255u);
++    }
++    g->last = (uint8_t)d;
++    g->ready = 1;
++}
++/* a loop ended: each of the first len steps changes with the chance EVOLVE / 128 */
++static __attribute__((noinline)) void gen_evolve(const track_t *t, gen_t *g, uint32_t len)
++{
++    uint8_t iv[12];
++    uint32_t i, n = gen_scale(t, iv), r = gen_range(n, t), f = (uint32_t)gen_set[trk_index(t)][GS_EVOLVE], x;
++    for (i = 0; i < len; i++) {
++        if ((gen_rand(g) & 127u) >= f)
++            continue;
++        x = gen_rand(g) & 127u;
++        if (x < 90u) {                                   /* the note moves a step or two in the scale */
++            int32_t m = (int32_t)(x % 4u) - 2;
++            m += m >= 0;
++            g->deg[i] = (uint8_t)clamp((int32_t)g->deg[i] + m, 0, (int32_t)r - 1);
++        } else if (x < 106u)
++            g->thr[i] = (uint8_t)(gen_rand(g) & 127u);   /* it comes or goes with DENS */
++        else if (x < 118u)
++            g->cthr[i] = (uint8_t)(gen_rand(g) & 127u);  /* it turns into a chord, or not */
++        else
++            g->aux[i] = (uint8_t)(gen_rand(g) & 255u);   /* another voicing and loudness */
++    }
++}
++/* the chord on step i: the offsets in scale degrees above its note (max 3), how many; 0 none */
++static uint32_t gen_chord(const gen_t *g, uint32_t i, uint32_t c, uint8_t *off)
++{
++    static const uint8_t SH[4][4][3] = {
++        {{4, 0, 0}, {2, 0, 0}, {4, 0, 0}, {2, 0, 0}},          /* 1..31: a fifth, a third */
++        {{2, 4, 0}, {2, 4, 0}, {1, 4, 0}, {3, 4, 0}},          /* 32..63: triads, sus2, sus4 */
++        {{2, 4, 6}, {2, 4, 6}, {1, 4, 6}, {3, 4, 6}},          /* 64..95: sevenths, sus */
++        {{2, 6, 8}, {4, 6, 8}, {3, 6, 9}, {2, 4, 8}}};         /* 96..127: 3-7-9, 5-7-9, quartal, add9 */
++    uint32_t lvl = c / 32u, v = g->aux[i] & 3u, k, n = 0;
++    if (!c || g->cthr[i] >= (c * 2u > 127u ? 127u : c * 2u))
++        return 0;
++    for (k = 0; k < 3u && SH[lvl][v][k]; k++)
++        off[n++] = SH[lvl][v][k];
++    return n;
++}
++/* an arp step of GEN (period: its length, as arp_fire's) */
++static __attribute__((noinline)) void gen_fire(track_t *t, uint32_t period)
++{
++    uint8_t iv[12], off[3];
++    gen_t *g = &gen[trk_index(t)];
++    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, (int32_t)GEN_N), i, n, r, d, k, nt, vel, nc;
++    t->arp_idx++;
++    if (t->arp_note)
++        arp_off(t);
++    if (!g->ready)
++        gen_fill(t, g);
++    i = t->arp_idx % len;
++    if (!i && t->arp_idx)
++        gen_evolve(t, g, len);                           /* (a loop ended) */
++    if (g->thr[i] >= gen_set[trk_index(t)][GS_DENS] || (uint32_t)(rng() & 127u) > (uint32_t)t->p[P_APROB])
++        return;                                          /* a rest */
++    n = gen_scale(t, iv);
++    r = gen_range(n, t);
++    d = g->deg[i] < r ? g->deg[i] : r - 1u;
++    vel = 64u + (g->aux[i] >> 2);
++    t->arp_off = period * (uint32_t)t->p[P_AGATE] / 128u;
++    nc = gen_chord(g, i, (uint32_t)gen_set[trk_index(t)][GS_CHORD], off);
++    for (k = 0; k <= nc; k++) {
++        nt = gen_note(t, iv, n, d + (k ? off[k - 1u] : 0u));
++        if (k && nt == (uint32_t)t->arp_note)
++            continue;
++        if (!t->arp_note)
++            t->arp_note = (uint8_t)nt;
++        else
++            t->arp_ch[k - 1u] = (uint8_t)nt;
++        if (rec_on(t))
++            rec_note(t, nt, vel);
++        trk_note_on(t, nt, vel);
++    }
++}
++
+ /* the place in the note list (len notes) the step arp_idx plays (not inlined, as arp_chord); UP+8 adds its note */
+ static __attribute__((noinline)) uint32_t arp_pick(track_t *t, uint32_t *list, uint32_t len)
+ {
+@@ -402,6 +548,10 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
+ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
+ {
+     uint32_t cnt, list[64], len, j;
++    if (t->p[P_AMODE] == AM_GEN) {                  /* 1.6_sequences: generative, no held notes */
++        gen_fire(t, period);
++        return;
++    }
+     if (!(len = arp_list(t, list, &cnt))) {        /* (every key silent now: QNT WHITE's black keys) */
+         if (t->arp_note)
+             arp_off(t);
+@@ -434,7 +584,16 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
+         else
+             t->arp_off -= gate_n;
+     }
+-    if (!t->p[P_AMODE] || !t->nheld) {
++    if (t->p[P_AMODE] == AM_GEN) {                  /* 1.6_sequences: while the music plays; stopped, it waits for PLAY at its first step */
++        if (!song.playing) {
++            if (t->arp_note)
++                arp_off(t);
++            t->arp_pos = 0xFFFFFFF;
++            t->arp_idx = 0xFFFFFFFFu;
++            return;
++        }
++    } else if (!t->p[P_AMODE] || !t->nheld) {
++        gen[trk_index(t)].ready = 0;                 /* (GEN left: it starts over, another pattern) */
+         if (!t->nheld && t->arp_note)
+             arp_off(t);
+         return;
+@@ -605,7 +764,7 @@ static void rec_release(track_t *t, uint32_t note)
+ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32_t vel)
+ {
+     uint32_t i = trk_index(t), k;
+-    if (cin_left != 1u || cin_pos < click_beat_len() / 2u || !((song.rec >> i) & 1u) || t->p[P_AMODE])
++    if (cin_left != 1u || cin_pos < click_beat_len() / 2u || !((song.rec >> i) & 1u) || arp_keys(t))
+         return;
+     for (k = 0; k < cin_n[i] && cin_note[i][k] != note; k++)
+         ;
+@@ -624,9 +783,9 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
+     last_note = (uint8_t)note;
+     if (cin_left)
+         cin_keep(t, note, vel);
+-    if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
++    if (rec_on(t) && !arp_keys(t))                 /* (ARP on: arp_tick records its notes) */
+         rec_note(t, note, vel);
+-    if (t->p[P_AMODE])
++    if (arp_keys(t))
+         arp_add(t, note);
+     else
+         trk_note_on(t, note, vel);
+@@ -709,10 +868,18 @@ static __attribute__((noinline)) void perf_key_remap(void)
+  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
+ static void key_on(uint32_t k, track_t *t)
+ {
+-    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel;
++    uint32_t n, i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel, md = 0, np;
++    if (play_on(t)) {                               /* CHRD PLAY: the black keys held shape it; STRUM / ARP play it a note at a time */
++        n = play_build(t, k, kb_note[k], vel);
++        md = n >> 8;
++        n &= 255u;
++    } else
++        n = chord_build(t, kb_note[k], kb_chord[k]);
++    np = md == 2u ? 0u : md == 1u ? 1u : n;         /* the notes that sound now */
+     kb_chn[k] = 0;
++    pk_mode[k] = 0;
+     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
+-    for (i = 0; i < n; i++) {
++    for (i = 0; i < np; i++) {
+         uint32_t x = kb_chord[k][i];
+         if (midi_local_held(t, x))
+             continue;
+@@ -720,7 +887,14 @@ static void key_on(uint32_t k, track_t *t)
+         midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);
+     }
+     in_key = 0;
+-    kb_chn[k] = (uint8_t)n;
++    kb_chn[k] = (uint8_t)np;
++    if (md) {                                       /* the rest of the chord: play_tick */
++        pk_mode[k] = (uint8_t)md;
++        pk_n[k] = (uint8_t)n;
++        pk_i[k] = (uint8_t)np;
++        pk_cur[k] = 0;
++        pk_wait[k] = md == 1u ? play_strum_samples() : 0;
++    }
+     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
+ }
+ 
+@@ -729,6 +903,10 @@ static void key_off(uint32_t k, track_t *t)
+ {
+     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
+     kb_chn[k] = 0;
++    if (pk_mode[k] == 2u && pk_cur[k])              /* an ARP chord: the note sounding now */
++        play_note_off(t, kb_chord[k][pk_cur[k] - 1u]);
++    pk_mode[k] = 0;
++    pk_cur[k] = 0;
+     for (i = 0; i < n; i++) {
+         uint32_t x = kb_chord[k][i];
+         if (midi_local_held(t, x))
+@@ -760,6 +938,7 @@ static void keyboard_block(void)
+ {
+     uint32_t cur = fm1_in.notes, ch, k;
+     uint32_t lay, fx, mute;
++    play_tick();                                 /* CHRD PLAY: the next notes of the strums and arps held */
+     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
+     if (perf_remap)
+         perf_key_remap();
+@@ -795,6 +974,10 @@ static void keyboard_block(void)
+                 kb_note[k] = KB_SILENT;
+             else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
+                 kb_note[k] = grid_key_note(k);
++            else if (play_on(&trk[kb_trk[k]]) && key_black(k))
++                kb_note[k] = KB_SILENT;               /* PLAY: a black key shapes the chord the white keys play, no sound */
++            else if (strum_on(&trk[kb_trk[k]]))   /* STR3 / STR7: a black key chooses the chord, a white key is a string */
++                kb_note[k] = (uint8_t)strum_key(&trk[kb_trk[k]], k);
+             else
+                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
+             if (kb_note[k] == KB_SILENT)
+@@ -1059,6 +1242,8 @@ static __attribute__((noinline)) uint32_t seq_time(track_t *t, uint32_t idx, uin
  static const motion_store_t *chain_motion(const track_t *t)
  {
      uint32_t s = chain.lane[trk_index(t)];
@@ -1048,6 +1948,24 @@ index 2d69d0f..988c6b3 100644
      return !chain.running ? &motion : s < 4u ? &chain.source[s].motion : 0;
  }
  
+@@ -1358,14 +1543,14 @@ static void events_block(uint32_t n)
+         }
+         engine_block(t);                              /* engine switch: fade, then switch (voice.c) */
+         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
+-        if ((t->armp && !t->p[P_AMODE]) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
++        if ((t->armp && !arp_keys(t)) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
+             t->nheld = 0;
+-            if (!t->p[P_AMODE])
++            if (!arp_keys(t))
+                 t->arp_phys = 0;
+             if (t->arp_note)
+                 arp_silence(t);
+         }
+-        t->armp = t->p[P_AMODE];
++        t->armp = arp_keys(t);
+         t->aholdp = t->p[P_AHOLD];
+     }
+     keyboard_block();
 diff --git a/firmware/src/song_chain.c b/firmware/src/song_chain.c
 index 3a59238..73c6011 100644
 --- a/firmware/src/song_chain.c
@@ -1199,7 +2117,7 @@ index aea1162..d137939 100644
      cur = st_current(obj, &h);
      seq = cur < 0 ? 0u : h.seq;
 diff --git a/firmware/src/ui.c b/firmware/src/ui.c
-index 64877ad..f4b9441 100644
+index 740eed9..00fe986 100644
 --- a/firmware/src/ui.c
 +++ b/firmware/src/ui.c
 @@ -23,6 +23,9 @@ static uint32_t up_pat_count(void);
@@ -1212,34 +2130,38 @@ index 64877ad..f4b9441 100644
  static void up_auto_name(char *b, uint32_t e, uint32_t k);   /* naming (ui_name.c) */
  static void up_ui_named(uint32_t op, uint32_t k, const char *name, uint32_t cat);
  static uint32_t up_cat(uint32_t k);
-@@ -71,7 +74,8 @@ static uint32_t up_gen;                      /* bumped on every user bank change
+@@ -71,7 +74,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
   * ui_input.c seq_entry). 1.5: bit 3 SYSTEM > HELP ON (Discussion #156, ui_help.c). 1.5.5: bit 4 CONTROL > SELECT PAGE
   * (Discussion #188, ui_input.c: SELECT steps the pages; 0 = BPM, as before); bit 5 MIDI > SCREEN WAKE PANEL (scr_input:
   * only the panel wakes SCREEN OFF, as up to 1.5.1; 0, every older setting, = +MIDI, the default: a note-on too).
 - * 1.5.6: bit 6 SELECT's second bit (#84: sel_mode). Bit 7 free */
-+ * 1.5.6: bit 6 SELECT's second bit (#84: sel_mode). 1.6_sequences: bit 7 SYSTEM > SEQ SWITCH END (patbank.c: a sequence
-+ * chosen while playing starts at the end of the one playing; 0 = NOW) */
++ * 1.5.6: bit 6 SELECT's second bit (#84: sel_mode). 1.6.1: bit 7 SYSTEM > 2ND CORE ON (BETA) */
  #define ui_prefs2 (favorites.factory[15][24])
  #define PREF_X 0xFF0000u                       /* (menu_items.c MENU_FLAGS: a bit of ui_prefs2, << 16) */
  #define PREF_SCOPE_MIX (0x01u << 16)
-@@ -86,6 +90,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
+@@ -91,6 +94,12 @@ static uint32_t up_gen;                      /* bumped on every user bank change
   * VEL as PAGE (its bit 4), before 1.5.5 both as BPM) */
  enum { SEL_BPM, SEL_PAGE, SEL_MODW, SEL_VEL, SEL_N };
  static uint32_t sel_mode(void) { return ((ui_prefs2 >> 4) & 1u) | ((ui_prefs2 >> 5) & 2u); }
-+#define PREF_SEQ_END (0x80u << 16)
++/* 1.6.1_sequences: a fourth byte of MENU flags, no engine uses it (favorites.factory[15][13], 0 in every older setting), the
++ * rows' bits << 24 (menu_items.c): bit 0 SYSTEM > SEQ SWITCH END (patbank.c: a sequence chosen while playing starts at the end
++ * of the one playing; 0 = NOW) */
++#define ui_prefs3 (favorites.factory[15][13])
++#define PREF_Y 0xFF000000u
++#define PREF_SEQ_END (0x01u << 24)
  /* 1.3 (Discussions #112, #134): MENU > DISPLAY > HOME, what the HOME page shows under its four cards: 0 SCOPE (the
   * oscilloscope, as before), 1 TRACKS (the four tracks as rows: ui_graph.c draw_home_tracks), 2 LEVELS (1.5, #134: the
   * rows of TRACKS, and KNOB 1..4 the LEVEL of T1..T4 in place of the engine's four: home_param). A byte of its own no
-@@ -386,7 +391,7 @@ static uint32_t large_kind(void)
+@@ -392,7 +401,7 @@ static uint32_t large_kind(void)
          return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
      g = cur_page()->graph;
      return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
 -           g == GR_SLICES || g == GR_EVENTS ? LK_LABEL : LK_TALL;
-+           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS ? LK_LABEL : LK_TALL;
++           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS || g == GR_GENS || g == GR_CPK ? LK_LABEL : LK_TALL;
  }
  /* the geometry of the page shown: the cards' height, the panel's top and height */
  static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
-@@ -479,6 +484,8 @@ static void chain_play_ui(void)
+@@ -485,6 +494,8 @@ static void chain_play_ui(void)
      uint32_t rc = chain_prepare();
      if (!rc) {
          ui.force = 1;
@@ -1248,7 +2170,7 @@ index 64877ad..f4b9441 100644
      } else if (rc >= 3u) {
          char b[8] = "A EMPTY";
          b[0] = (char)('A' + rc - 3u);
-@@ -1751,6 +1758,7 @@ static void track_select(uint32_t i)
+@@ -1757,6 +1768,7 @@ static void track_select(uint32_t i)
  #include "ui_slice.c"                             /* EDIT > SLICES: SLICE's slices by hand (an action page too) */
  #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
  #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
@@ -1256,11 +2178,43 @@ index 64877ad..f4b9441 100644
  
  /* ---------------------------------------------------- action pages --- */
  /* Pages whose purpose is an action (SAVE > USER, PHRASES, PROJECT, TOOLS, EDIT > SLICES, SEQ > AUTOMATION): the knobs pick,
+@@ -1771,6 +1783,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
+     if (ui.home)
+         return 0;
+     if (pg->graph == GR_EVENTS) return 16u;     /* AUTOMATION: no knob is an action; OCT+ by the row (ev_oct) */
++    if (pg->graph == GR_CPK) return 16u;        /* SAVE > CHORDS: no knob is an action; OCT+ saves the pack (cpk_save) */
+     if (pg->graph == GR_TOOLS) return 15u;
+     if (pg->graph == GR_SONG)
+         return 1u;                               /* PLAY / STOP (also the PLAY button) */
+@@ -1794,6 +1807,7 @@ static uint32_t act_col(void)
+ {
+     if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
+     if (!ui.home && cur_page()->graph == GR_EVENTS) return 5u;
++    if (!ui.home && cur_page()->graph == GR_CPK) return 5u;
+     return !ui.home && cur_page()->graph == GR_PATS ? 2u : ui.act;
+ }
+ 
+@@ -1802,6 +1816,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
+     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
+     uint32_t id = cur_page()->id[c & 3u];
+     if (cur_page()->graph == GR_EVENTS) return ev_act_name();
++    if (cur_page()->graph == GR_CPK) return "SAVE";
+     if (cur_page()->graph == GR_TOOLS) {
+         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
+         return (c & 3u) == 1u && ui.tl_clean ? "CLEAN" : actions[c & 3u];   /* (1.5.5: KNOB 2 on: CLEAN INIT) */
+@@ -1827,6 +1842,7 @@ static int act_ready(void)
+     if (!c--)
+         return 0;
+     if (cur_page()->graph == GR_EVENTS) return ev_act_ready();
++    if (cur_page()->graph == GR_CPK) return cpk_sel >= CPK_NF;          /* a user pack picked */
+     if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
+         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
+                                  c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
 diff --git a/firmware/src/ui_draw.c b/firmware/src/ui_draw.c
-index e6eb135..b17599a 100644
+index f874a99..4b5d0e0 100644
 --- a/firmware/src/ui_draw.c
 +++ b/firmware/src/ui_draw.c
-@@ -739,9 +739,45 @@ static void sound_name(const track_t *t, char *b)
+@@ -814,9 +814,45 @@ static void sound_name(const track_t *t, char *b)
          str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
  }
  
@@ -1307,7 +2261,7 @@ index e6eb135..b17599a 100644
      const track_t *t = TSEL;
      uint32_t sig;
      const page_t *pg = cur_page();
-@@ -749,6 +785,11 @@ static void draw_foot(void)
+@@ -824,6 +860,11 @@ static void draw_foot(void)
      const char *ename = e->name, *help;
      int32_t x;
      sound_name(t, pn);
@@ -1319,7 +2273,7 @@ index e6eb135..b17599a 100644
      if (ui.home)
          str_cpy(ti, "HOME", sizeof ti);
      else                                               /* page title + number in its family: "ENV DEST 2/2" */
-@@ -769,6 +810,10 @@ static void draw_foot(void)
+@@ -844,6 +885,10 @@ static void draw_foot(void)
          foot_hint(ha, hb);
          sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb) + foot_rename() * 7717u;
      }
@@ -1330,7 +2284,7 @@ index e6eb135..b17599a 100644
      if (grid_on())
          sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
      help = ui.help_t && !ui.ml.on ? help_page() : 0;   /* 1.5, HELP ON: the page's hint for ~2 s after it was entered
-@@ -792,7 +837,11 @@ static void draw_foot(void)
+@@ -867,7 +912,11 @@ static void draw_foot(void)
          foot_hint(ha, hb);                            /* "OCT+ LOAD", "OCT- BACK": keycaps and their words */
          kh[0] = (khint_t){KC_OCTUP, ha + 5};
          kh[1] = (khint_t){KC_OCTDN, hb + 5};
@@ -1343,7 +2297,7 @@ index e6eb135..b17599a 100644
              kh[2] = kh[1];
              kh[1] = (khint_t){KC_EDIT, cur_page()->graph == GR_EVENTS ? "DELETE" : "NAME"};
              cv_key_row(8, 232, 2, kh, 3, (act_ready() ? 1u : 0u) | (rn == 2u ? 2u : 0u) | 4u, T_BG);
-@@ -846,6 +895,10 @@ static void draw_foot(void)
+@@ -921,6 +970,10 @@ static void draw_foot(void)
              str_cpy(ti + 4, ti + 10, sizeof ti - 4);    /* #93: "AUTOMATION 6/6" -> "AUTO 6/6" where the sound's name */
              tx = r - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);   /* would be cut (MENU > LARGE) */
          }
@@ -1354,7 +2308,7 @@ index e6eb135..b17599a 100644
          x = 8;
          if (FELUCCA_ICONS) {
              if (ei != ICON_NONE)
-@@ -899,6 +952,7 @@ static void draw_columns(void)
+@@ -975,6 +1028,7 @@ static void draw_columns(void)
      }
      if (cur_page()->graph == GR_SONG) {             /* SECTION, TRACK, its PAT (A..D, -), REPS (the section's) */
          uint32_t row = ui.song_row < CHAIN_ROWS ? ui.song_row : CHAIN_ROWS - 1u, k = ui.song_trk % NTRK, sl;
@@ -1362,7 +2316,7 @@ index e6eb135..b17599a 100644
          int used = row < chain_config.count;
          fmt_int(val, (int32_t)row + 1);
          draw_column(0, "SEC", val, "", VAL(0u), -1, ICON_X_SONG);
-@@ -906,10 +960,13 @@ static void draw_columns(void)
+@@ -982,10 +1036,13 @@ static void draw_columns(void)
          val[1] = (char)('1' + k);
          val[2] = 0;
          draw_column(1, "TRACK", val, "", VAL(1u), -1, trk_icon(k, 1));
@@ -1378,10 +2332,43 @@ index e6eb135..b17599a 100644
          if (used) fmt_int(val, chain_config.row[row].repeat);
          else str_cpy(val, "--", sizeof val);
          draw_column(3, "REPS", val, "", used ? VAL(3u) : T_DIM, -1, ICON_AUTO);
-@@ -1011,6 +1068,19 @@ static void draw_columns(void)
+@@ -1087,6 +1144,52 @@ static void draw_columns(void)
              draw_act_column(c, c == 1u && ui.tl_clean && act_col() == 2u ? "CLEAN" : labels[c], VAL(c), icons[c]);
          return;
      }
++#if FELUCCA_PATBANK
++    if (cur_page()->graph == GR_CPK) {                 /* SAVE > CHORDS: PACK, KEY, ACT, STRUM */
++        static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
++        char nb[8], pn[10], sv[8];
++        str_cpy(pn, cpk_name(cpk_sel, nb), 8);
++        if (memcmp(&cpk, cpk_pack(cpk_sel), sizeof cpk))
++            str_cpy(pn + str_len(pn), "*", 2);           /* (changed since it was loaded) */
++        draw_column(0, "PACK", pn, "", VAL(0u), (int32_t)cpk_sel * 1000 / (int32_t)(CPK_N - 1u), ICON_SCALE);
++        draw_column(1, "KEY", BK[cpk_key], "", VAL(1u), (int32_t)cpk_key * 1000 / (int32_t)(CPK_KEYS - 1u), ICON_PITCH);
++        draw_column(2, "ACT", CA_NAME[cpk.act[cpk_key]], "", VAL(2u), (int32_t)cpk.act[cpk_key] * 1000 / (int32_t)(CA_N - 1u), ICON_ORDER);
++        fmt_int(sv, (int32_t)cpk.strum * 5);
++        draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)cpk.strum * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
++        return;
++    }
++    if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and SCL of the selected track */
++        static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE"};
++        static const uint8_t GI[GS_N + 1] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_SCALE};
++        uint32_t t = song.sel % NTRK;
++        char gv[GS_N][8];
++        for (c = 0; c < GS_N; c++) {
++            uint32_t v = gen_set[t][c];
++            if (c == GS_CHORD && !v) {
++                str_cpy(gv[c], "OFF", sizeof gv[c]);
++                draw_column(c, GL[c], gv[c], "", VAL(c), 0, GI[c]);
++            } else {
++                fmt_int(gv[c], (int32_t)(v * 100u / 127u));
++                draw_column(c, GL[c], gv[c], "%", VAL(c), (int32_t)v * 1000 / 127, GI[c]);
++            }
++        }
++        draw_column(3, "SCL", TP[P_SCALE].names[TSEL->p[P_SCALE]], "", VAL(3u), -1, GI[GS_N]);
++        return;
++    }
++#endif
 +#if FELUCCA_PATBANK
 +    if (cur_page()->graph == GR_SEQS) {                /* SEQUENCE: the sequence (1..8) each track plays, KNOB 1..4 */
 +        char lb[3] = {'T', '1', 0}, sq[2] = {'1', 0}, cn[3] = {'x', '1', 0};   /* (cn: the chain's length) */
@@ -1399,10 +2386,41 @@ index e6eb135..b17599a 100644
          const track_t *t = TSEL;
          uint32_t lvl = trk_level(song.sel);
 diff --git a/firmware/src/ui_graph.c b/firmware/src/ui_graph.c
-index 2b3db04..809dd66 100644
+index 2b3db04..ffadd16 100644
 --- a/firmware/src/ui_graph.c
 +++ b/firmware/src/ui_graph.c
-@@ -1018,7 +1018,7 @@ static uint32_t sg_muldiv(uint32_t a, uint32_t b, uint32_t c)
+@@ -385,7 +385,8 @@ static void graph_scale(const track_t *t, uint16_t c)
+ }
+ /* CHORD (SCL 2): the chord's name ("Cm7": the last one the track played; before any, the one on its ROOT from
+  * C4) over the keys from the C below its lowest note (two octaves, three for a wide one): its notes THEME, its
+- * root's ACCENT, the others RAISE. OFF or a kit: what to do instead */
++ * root's ACCENT, the others RAISE. STR3 / STR7: the chord the black keys chose (the white keys strum it). OFF or a kit: what to do
++ * instead */
+ static void panel_note(const char *a, const char *b, const char *c);
+ static void panel_alert(uint32_t id, const char *a);
+ static void graph_chord(const track_t *t, uint16_t c)
+@@ -405,7 +406,10 @@ static void graph_chord(const track_t *t, uint16_t c)
+         panel_note("NO CHORDS ON KITS", 0, 0);
+         return;
+     }
+-    if (chord_last[k].n) {
++    if (strum_on(t)) {                                  /* STR3 / STR7: the chord the white keys strum (the black keys choose it) */
++        n = strum_chord(t, strum_slot[k], nn, &r, &mask);
++        cap = "STRUM";
++    } else if (chord_last[k].n) {
+         r = chord_last[k].root;
+         mask = chord_last[k].mask;
+         n = chord_last[k].n;
+@@ -415,7 +419,7 @@ static void graph_chord(const track_t *t, uint16_t c)
+         n = chord_make(t, (uint32_t)(60 + t->p[P_ROOT]), nn, &r, &mask);
+         cap = "ON ROOT";
+     }
+-    if (trk_vmode(t) != V_POLY)
++    if (trk_vmode(t) != V_POLY && !strum_on(t))
+         cap = "ROOT ONLY";                              /* MONO / LEGATO / UNISON */
+     chord_name(b, (uint32_t)r, mask);
+     cv_text_on(14, 8, &AF_M, b, T_TEXT, T_SURF);
+@@ -1018,7 +1022,7 @@ static uint32_t sg_muldiv(uint32_t a, uint32_t b, uint32_t c)
  }
  static uint32_t song_unit(const chain_row_t *r)        /* one pass of a section: its clock track's (1/48 quarters) */
  {
@@ -1411,10 +2429,111 @@ index 2b3db04..809dd66 100644
      return s < 4u && graph_project_used(s) && graph_plen[s][k] ? graph_plen[s][k] : SG_BARU;
  }
  static void song_layout(song_lay_t *L)
-@@ -1892,6 +1892,43 @@ static void home_track_row(uint32_t c)
+@@ -1892,6 +1896,144 @@ static void home_track_row(uint32_t c)
      tr_meter(TR_MX, TR_MY, c, cs, sel ? T_INK : T_MID, bg);
      cv_blit(3, (uint32_t)y);
  }
++#if FELUCCA_PATBANK
++/* SAVE > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
++static uint32_t cpks_sig;
++static void draw_cpk(void)
++{
++    enum { GW = 234, CW = 36, CH = 30 };
++    uint32_t i, sig = (uint32_t)cpk_key * 131u + (uint32_t)cpk_sel * 7u + cpk.strum + (uint32_t)play_on(TSEL) * 977u;
++    char nm[12];
++    for (i = 0; i < CPK_KEYS; i++)
++        sig = sig * 31u + cpk.act[i];
++    if (ui.force) {
++        draw_gaps(graph_y(), graph_h());
++        cpks_sig = ~sig;
++    }
++    if (sig == cpks_sig)
++        return;
++    cpks_sig = sig;
++    cv_begin(GW, H_GRAPH, T_BG);
++    for (i = 0; i < CPK_KEYS; i++) {
++        static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
++        int32_t x = (i < 6u ? 4 : 23) + (int32_t)(i < 6u ? i : i - 6u) * (CW + 2), y = i < 6u ? 4 : 38;
++        uint32_t sel = i == cpk_key, on = cpk.act[i] != CA_NONE;
++        uint16_t fill = sel ? T_ACCENT : on ? T_RAISE : T_SURF, ink = sel ? T_INK : on ? T_TEXT : T_DIM;
++        cv_rrect(x, y, CW, CH, 3, fill, T_BG);
++        GFX_HOOK_ALIGN(x, y + 2, x + CW, y + 16, AL_HV, "chord key action centred");
++        cv_text_in(x, y + 2 + CAP_IN(S, 14), CW, &AF_S, CA_NAME[cpk.act[i]], ink, fill);
++        GFX_HOOK_ALIGN(x, y + 17, x + CW, y + 28, AL_HV, "chord key name centred");
++        cv_text_in(x, y + 17 + CAP_IN(S, 11), CW, &AF_S, BK[i], sel ? T_INK : T_DIM, fill);
++    }
++    {   /* what the key edited makes of a C chord */
++        cshape_t sh = play_shape(1u << cpk_key);
++        uint8_t out[CHORD_MAX];
++        int32_t r;
++        uint16_t mask;
++        uint32_t a = cpk.act[cpk_key];
++        if (a == CA_NONE)
++            str_cpy(nm, "NO CHANGE", sizeof nm);
++        else if (a == CA_STRUM || a == CA_ARP)
++            str_cpy(nm, a == CA_STRUM ? "STRUM IT" : "ARP IT", sizeof nm);
++        else {
++            (void)play_chord(TSEL, &sh, 60u, out, &r, &mask);
++            chord_name(nm, 60u, mask);
++        }
++        GFX_HOOK_ALIGN(0, 76, GW, 96, AL_HV, "chord preview centred");
++        cv_text_in(0, 76 + CAP_IN(S, 20), GW, &AF_S, nm, T_TEXT, T_BG);
++        GFX_HOOK_ALIGN(0, 100, GW, 116, AL_HV, "chord hint centred");
++        cv_text_in(0, 100 + CAP_IN(S, 16), GW, &AF_S, play_on(TSEL) ? "HOLD KEYS, PLAY A WHITE KEY" : "SCL > CHORD: SET CHRD TO PLAY", T_MID, T_BG);
++    }
++    cv_blit((uint32_t)CARD_X(0), Y_GRAPH);
++}
++#endif
++#if FELUCCA_PATBANK
++/* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale, bright
++ * when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim, with a line of text, when the
++ * arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
++static uint32_t gens_sig;
++static void draw_gens(void)
++{
++    enum { GW = 234, GX0 = 5, GP = 7 };
++    track_t *t = TSEL;
++    gen_t *g = &gen[song.sel % NTRK];
++    uint8_t iv[12];
++    uint32_t i, len = (uint32_t)clamp(t->p[P_SLEN], 1, (int32_t)GEN_N), on = t->p[P_AMODE] == AM_GEN, n = gen_scale(t, iv),
++             r = gen_range(n, t), dens = gen_set[song.sel % NTRK][GS_DENS], chd = gen_set[song.sel % NTRK][GS_CHORD],
++             ph = on && song.playing && t->arp_idx != 0xFFFFFFFFu ? t->arp_idx % len : 0xFFu, sig = on + 3u * len + 7u * dens + 13u * chd + 29u * r;
++    if (!g->ready)
++        sig += 101u;
++    for (i = 0; i < GEN_N; i++)
++        sig = sig * 31u + g->deg[i] + 7u * (g->thr[i] < dens) + 11u * (g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u));
++    sig = sig * 31u + ph;
++    if (ui.force) {
++        draw_gaps(graph_y(), graph_h());
++        gens_sig = ~sig;
++    }
++    if (sig == gens_sig)
++        return;
++    gens_sig = sig;
++    cv_begin(GW, H_GRAPH, T_BG);
++    for (i = 0; i < GEN_N; i++) {
++        int32_t x = GX0 + GP * (int32_t)i, h, y;
++        uint32_t plays = g->ready && i < len && g->thr[i] < dens;
++        uint16_t fill = !on ? T_RAISE : i == ph ? T_TEXT : T_ACCENT;
++        if (!plays) {
++            cv_rrect(x, 116, 5, 2, 1, i < len ? T_RAISE : T_SURF, T_BG);
++            continue;
++        }
++        h = 8 + (int32_t)(g->deg[i] < r ? g->deg[i] : r - 1u) * 92 / (int32_t)(r > 1u ? r - 1u : 1u);
++        y = 118 - h;
++        cv_rrect(x, y, 5, h, 1, fill, T_BG);
++        if (chd && g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u))
++            cv_rrect(x, y - 6, 5, 3, 1, on ? T_MID : T_DIM, T_BG);
++    }
++    if (on && ph < len)
++        cv_rrect(GX0 + GP * (int32_t)ph, 120, 5, 1, 0, T_TEXT, T_BG);
++    if (!on) {
++        GFX_HOOK_ALIGN(0, 2, GW, 14, AL_HV, "gen note centred");
++        cv_text_in(0, 2 + CAP_IN(S, 12), GW, &AF_S, "ARP MODE: GEN", T_MID, T_BG);
++    }
++    cv_blit((uint32_t)CARD_X(0), Y_GRAPH);
++}
++#endif
 +#if FELUCCA_PATBANK
 +/* SEQ > SEQUENCE: under each track's card its eight sequences, one over the other (12 px, 2 apart): the one playing in the
 + * accent, the ones with notes raised, the empty ones flat; the selected track's brighter */
@@ -1455,7 +2574,7 @@ index 2b3db04..809dd66 100644
  static void draw_home_tracks(void)
  {
      uint32_t c;
-@@ -2130,8 +2167,8 @@ static void graph_song(void)
+@@ -2130,8 +2272,8 @@ static void graph_song(void)
      }
      for (k = 0; k < NTRK; k++)                        /* the lanes: a block per run of one slot, "-" a faint line */
          for (i = 0; i < L.n; i = j) {
@@ -1466,7 +2585,7 @@ index 2b3db04..809dd66 100644
                  ;
              if (s < 4u) {
                  sg_block(&L, off, k, i, j, s, k == lane ? c : CHAIN_ROWS, sp);
-@@ -2167,7 +2204,7 @@ static void graph_song(void)
+@@ -2167,7 +2309,7 @@ static void graph_song(void)
          if (r1 > r0) cv_rect(r0, SG_RY, r1 - r0, 1, T_LINE);
          if (sp >= SG_X0 && sp < hi - 1) {              /* the playhead, across the lanes (INK on the cell selected) */
              for (k = 0; k < NTRK; k++) {
@@ -1475,7 +2594,7 @@ index 2b3db04..809dd66 100644
                  int on = k == lane && s < 4u && graph_project_used(s) && sp >= SG_X0 + L.x[c] - off &&
                           sp + 2 <= SG_X0 + L.x[c + 1u] - off - SG_GAP;
                  cv_rect(sp, SG_LY(k), 2, SG_LH + (k + 1u < NTRK ? SG_LG : 0), on ? T_INK : T_ACCENT);
-@@ -2215,12 +2252,19 @@ static void graph_song(void)
+@@ -2215,12 +2357,19 @@ static void graph_song(void)
          cv_text_on(x0, ly, fl, b, T_MID, T_SURF);
      }
      if (c < L.n) {
@@ -1497,7 +2616,7 @@ index 2b3db04..809dd66 100644
              cv_free_text(SG_X0, ly, fl, graph_project_name(s), T_MID, T_SURF, x0 - 10 - SG_X0);
      } else {                                           /* + ADD: how */
          for (i = 0; i < 4u && !graph_project_used(i); i++)
-@@ -2239,6 +2283,12 @@ static void draw_graph(void)
+@@ -2239,6 +2388,20 @@ static void draw_graph(void)
          draw_tracks();
          return;
      }
@@ -1506,12 +2625,20 @@ index 2b3db04..809dd66 100644
 +        draw_seqs();
 +        return;
 +    }
++    if (!ui.home && pg->graph == GR_GENS) {
++        draw_gens();
++        return;
++    }
++    if (!ui.home && pg->graph == GR_CPK) {
++        draw_cpk();
++        return;
++    }
 +#endif
      if (ui.home && home_tracks()) {                  /* MENU > HOME TRACKS (1.3) */
          draw_home_tracks();
          return;
 diff --git a/firmware/src/ui_help.c b/firmware/src/ui_help.c
-index 674a07a..57f6fcc 100644
+index 674a07a..088828c 100644
 --- a/firmware/src/ui_help.c
 +++ b/firmware/src/ui_help.c
 @@ -41,7 +41,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
@@ -1523,22 +2650,47 @@ index 674a07a..57f6fcc 100644
      {"USER", "[K1]SLOT[OCT+]SAVE[SAVE]PRESETS"},
      {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
      {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJECT"},
-@@ -52,6 +52,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
+@@ -52,6 +52,9 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
      {"STEP", "[KEYS]WRITE[K1]STEP[SEQ]RATCH"},   /* (1.5.1: SEQ to DETAIL) */
      {"DETAIL", "[PRESETS]STEP[K1]CHANCE, 1:4, FILL"},   /* (1.5.5: the conditions past 100 %) */
      {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
 +    {"SEQUENCE", "[K1-4]TRACKS[PRESETS]CHAIN"},
++    {"GEN", "[K1]DENS[K2]CHORD[K3]EVOLVE[K4]SCL"},
++    {"CHORDS", "[K1]PACK[K2]KEY[K3]ACT[K4]SPEED[OCT+]SAVE"},
      {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]CLOCK"},
      {"CLOCK", "[SELECT]TEMPO[GLO]HOLD: TAP"},
  };
 diff --git a/firmware/src/ui_input.c b/firmware/src/ui_input.c
-index 8015e2a..0f412cd 100644
+index 8015e2a..b5cbc3b 100644
 --- a/firmware/src/ui_input.c
 +++ b/firmware/src/ui_input.c
-@@ -497,6 +497,44 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
+@@ -368,6 +368,8 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
+     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
+         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
+ #endif
++    if (!ui.layer && !ui.menu && !name_on() && !grid_on() && strum_on(TSEL))
++        c |= 1u << strum_led_key(TSEL) & 0x7FFFFFFu;    /* STR3 / STR7: the chord chosen (chord.c) */
+     return c;
+ }
+ 
+@@ -497,6 +499,58 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
  
  /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
   * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
++#if FELUCCA_PATBANK
++/* ARP > GEN: KNOB 1..3 DENS, CHORD, EVOLVE of the selected track (0..127), KNOB 4 its SCL */
++static void gen_edit(uint32_t slot, int32_t steps)
++{
++    uint32_t t = song.sel % NTRK;
++    if (slot < GS_N) {
++        gen_set[t][slot] = (uint8_t)clamp((int32_t)gen_set[t][slot] + steps, 0, 127);
++        pb_dirty |= 7u;                                  /* (the settings are in the sequence store's first three objects) */
++        pb_gen++;
++    } else
++        TSEL->p[P_SCALE] = (int16_t)clamp((int32_t)TSEL->p[P_SCALE] + steps, 0, (int32_t)(sizeof SCALE_MASK / sizeof SCALE_MASK[0]) - 1);
++    ui.force = 1;
++}
++#endif
 +#if FELUCCA_PATBANK
 +/* SEQ > SEQUENCE: KNOB k turns track k's sequence, 1..8 (no wrap) */
 +static void seqs_edit(uint32_t slot, int32_t steps)
@@ -1580,7 +2732,7 @@ index 8015e2a..0f412cd 100644
  static void tracks_edit(uint32_t slot, int32_t steps)
  {
      track_t *t = TSEL;
-@@ -559,7 +597,10 @@ static void song_keys(uint32_t notes)
+@@ -559,7 +613,10 @@ static void song_keys(uint32_t notes)
              if (chain_config.count == 1u)
                  chain_config.row[0] = chain_row_of((uint32_t)s, 1);
          }
@@ -1592,7 +2744,7 @@ index 8015e2a..0f412cd 100644
          ui.force = 1;
      }
  }
-@@ -567,7 +608,7 @@ static void song_keys(uint32_t notes)
+@@ -567,7 +624,7 @@ static void song_keys(uint32_t notes)
  static uint32_t song_leds(void)
  {
      uint32_t k, s;
@@ -1601,7 +2753,7 @@ index 8015e2a..0f412cd 100644
          return 0;
      for (k = 0; k < 27u; k++)
          if (song_key(k) == (int32_t)s)
-@@ -965,13 +1006,14 @@ static void edit_param(uint32_t slot, int32_t steps)
+@@ -965,13 +1022,14 @@ static void edit_param(uint32_t slot, int32_t steps)
              if (slot == 2u) return;
          }
          r = &chain_config.row[ui.song_row];
@@ -1620,7 +2772,7 @@ index 8015e2a..0f412cd 100644
          0)) {
          ui_message("STOP TO EDIT"); return;
      }
-@@ -979,6 +1021,12 @@ static void edit_param(uint32_t slot, int32_t steps)
+@@ -979,6 +1037,20 @@ static void edit_param(uint32_t slot, int32_t steps)
          step_edit(slot, steps);
          return;
      }
@@ -1629,11 +2781,30 @@ index 8015e2a..0f412cd 100644
 +        seqs_edit(slot, steps);
 +        return;
 +    }
++    if (pg->graph == GR_GENS) {
++        gen_edit(slot, steps);
++        return;
++    }
++    if (pg->graph == GR_CPK) {                            /* SAVE > CHORDS: KNOB 1 PACK, 2 KEY, 3 ACT, 4 STRUM (patbank.c cpk_edit) */
++        cpk_edit(slot, steps);
++        return;
++    }
 +#endif
      if (pg->scope == SC_TRK) {
          tracks_edit(slot, steps);
          return;
-@@ -1281,6 +1329,16 @@ static void presets_turn(int32_t s)
+@@ -1063,6 +1135,10 @@ static void act_do(void)
+         ev_oct();
+         return;
+     }
++    if (cur_page()->graph == GR_CPK) {
++        cpk_save();
++        return;
++    }
+     if (cur_page()->graph == GR_TOOLS) {
+         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+         if (!act_ready()) {                               /* nothing there to clear or delete */
+@@ -1281,6 +1357,16 @@ static void presets_turn(int32_t s)
          nudge_turn(held, s);
          return;
      }
@@ -1756,6 +2927,288 @@ index 709c3cb..a834fa8 100644
  #include "old_pack.h"
  
  enum { ED_BACKUP_LIST = 65, ED_BACKUP_GET, ED_BACKUP_PUT };
+diff --git a/tests/chord_test.c b/tests/chord_test.c
+index 217879b..fe0a275 100644
+--- a/tests/chord_test.c
++++ b/tests/chord_test.c
+@@ -35,7 +35,7 @@ static int chord_is(uint32_t r, const uint8_t *want)
+     uint8_t out[CHORD_MAX];
+     uint32_t n = chord_build(&trk[0], r, out), i;
+     for (i = 0; i < n; i++) if (want[i] != out[i]) return 0;
+-    return i == CHORD_MAX || !want[i];
++    return i == 4u || !want[i];
+ }
+ static int name_is(uint32_t r, const char *want)
+ {
+@@ -154,7 +154,7 @@ static int shapes_voicings(void)
+         char b[12];
+         ok = 1;
+         for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
+-            for (c = 1; c <= (uint32_t)TP[P_CHRD].max; c++)
++            for (c = 1; c <= CH_POW; c++)                    /* (STR3 / STR7 strum: the keys, below) */
+                 for (v = 0; v <= (uint32_t)TP[P_VOIC].max; v++)
+                     for (note = 0; note < 128u; note++) {
+                         t->p[P_SCALE] = (int16_t)s; t->p[P_CHRD] = (int16_t)c; t->p[P_VOIC] = (int16_t)v;
+@@ -318,9 +318,258 @@ static int kits(void)
+     return bad;
+ }
+ 
++/* ---- 1.6.1_sequences: STR3 / STR7, the black keys choose the chord, the white keys strum it ---- */
++static uint32_t key_of(int black, uint32_t place)
++{
++    uint32_t k;
++    for (k = 0; k < 27u; k++)
++        if (key_black(k) == black && key_place(k) == place)
++            return k;
++    return 99u;
++}
++static void kdown(uint32_t k) { fm1_in.notes |= 1u << k; events_block(CTL); }
++static void kup(uint32_t k) { fm1_in.notes &= ~(1u << k); events_block(CTL); }
++static int strum(void)
++{
++    int bad = 0, ok;
++    track_t *t = &trk[0];
++    uint32_t w;
++    char b[12];
++    reset();
++    t->p[P_CHRD] = CH_STR3; t->p[P_VOIC] = VC_CLOSE; strum_slot[0] = 0;
++    kdown(key_of(1, 0));                                    /* the first black key: the chord on the tonic */
++    ok = ngated(t) == 0 && strum_slot[0] == 0;              /* it makes no sound */
++    kup(key_of(1, 0));
++    kdown(key_of(0, 0));
++    ok &= ngated(t) == 1 && gate_note(t, 48);               /* string 1: C3 */
++    kup(key_of(0, 0));
++    kdown(key_of(0, 1)); ok &= gate_note(t, 52); kup(key_of(0, 1));
++    kdown(key_of(0, 2)); ok &= gate_note(t, 55); kup(key_of(0, 2));
++    kdown(key_of(0, 3)); ok &= gate_note(t, 60); kup(key_of(0, 3));      /* the chord again an octave up */
++    kdown(key_of(0, 7)); ok &= gate_note(t, 76); kup(key_of(0, 7));                    /* string 8: E, two octaves up */
++    ok &= ngated(t) == 0;
++    bad += check("STRUM STR3: a black key makes no sound; the white keys are the strings, C E G then up an octave", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR3; t->p[P_VOIC] = VC_CLOSE;
++    kdown(key_of(1, 4)); kup(key_of(1, 4));             /* the fifth black key: degree 5, G */
++    chord_name(b, chord_last[0].root, chord_last[0].mask);
++    ok = str_eq(b, "G") && chord_last[0].n == 3 && chord_last[0].root == 55;
++    kdown(key_of(0, 0)); ok &= gate_note(t, 55); kup(key_of(0, 0));
++    kdown(key_of(0, 1)); ok &= gate_note(t, 59); kup(key_of(0, 1));
++    kdown(key_of(0, 2)); ok &= gate_note(t, 62); kup(key_of(0, 2));
++    kdown(key_of(1, 1)); kup(key_of(1, 1));             /* the second: Dm */
++    chord_name(b, chord_last[0].root, chord_last[0].mask);
++    ok &= str_eq(b, "Dm");
++    kdown(key_of(1, 6)); kup(key_of(1, 6));             /* the seventh: Bdim */
++    chord_name(b, chord_last[0].root, chord_last[0].mask);
++    ok &= str_eq(b, "Bdim");
++    kdown(key_of(1, 7)); kup(key_of(1, 7));             /* past the scale's seven: the tonic an octave up */
++    chord_name(b, chord_last[0].root, chord_last[0].mask);
++    ok &= str_eq(b, "C") && chord_last[0].root == 60;
++    bad += check("STRUM: the black keys are the diatonic chords (G, Dm, Bdim, then the tonic an octave up), named on the CHORD page", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR7; t->p[P_VOIC] = VC_CLOSE;
++    kdown(key_of(1, 4)); kup(key_of(1, 4));
++    ok = chord_last[0].n == 4;
++    kdown(key_of(0, 3)); ok &= gate_note(t, 65); kup(key_of(0, 3));     /* G B D F: the fourth string, the seventh */
++    chord_name(b, chord_last[0].root, chord_last[0].mask);
++    ok &= str_eq(b, "G7");
++    kdown(key_of(0, 4)); ok &= gate_note(t, 67); kup(key_of(0, 4));                    /* the fifth string: the root an octave up */
++    bad += check("STRUM STR7: sevenths (G7: G B D F), the strings walk up them", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR3; t->p[P_VOIC] = VC_OPEN;
++    kdown(key_of(1, 0)); kup(key_of(1, 0));
++    kdown(key_of(0, 1)); ok = gate_note(t, 55); kup(key_of(0, 1));   /* OPEN: 1-5-3: the second string is the fifth */
++    t->p[P_VOIC] = VC_BASS;
++    kdown(key_of(1, 0)); kup(key_of(1, 0));
++    kdown(key_of(0, 0)); ok &= gate_note(t, 36); kup(key_of(0, 0));                          /* +OCT: the lowest string the root an octave down */
++    bad += check("STRUM: VOIC voices the chord (OPEN, +OCT) as it does the chord keys", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR3; t->p[P_TRANS] = 2; t->p[P_ROOT] = 2; t->p[P_SCALE] = 5;         /* D pentatonic, TRN +2 */
++    kdown(key_of(1, 0)); kup(key_of(1, 0));
++    kdown(key_of(0, 0)); ok = ngated(t) == 1; kup(key_of(0, 0));
++    kdown(key_of(1, 5)); kup(key_of(1, 5));             /* five notes: the sixth black key is the tonic an octave up */
++    ok &= chord_last[0].root == 48 + 2 + 12 + 2 && ngated(t) == 0;
++    bad += check("STRUM: ROOT, SCALE and TRN apply (a pentatonic has five chords before the octave)", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR3; t->p[P_VOICE] = V_MONO;
++    kdown(key_of(1, 0)); kup(key_of(1, 0));
++    kdown(key_of(0, 1)); ok = ngated(t) == 1 && gate_note(t, 52); kup(key_of(0, 1));
++    ok &= ngated(t) == 0;
++    t->p[P_CHRD] = CH_OFF; t->p[P_VOICE] = V_POLY;
++    kdown(key_of(0, 0)); ok &= gate_note(t, 53); kup(key_of(0, 0));                   /* CHRD OFF: the key plays itself, F3 */
++    kdown(key_of(1, 0)); ok &= gate_note(t, 54); kup(key_of(1, 0));                   /* (a black key sounds again) */
++    bad += check("STRUM: a MONO part plays the string; CHRD OFF plays the keys as ever", ok);
++
++    reset();
++    t->p[P_CHRD] = CH_STR3;
++    kdown(key_of(1, 0)); kup(key_of(1, 0));
++    kdown(key_of(0, 0)); kdown(key_of(0, 1)); kdown(key_of(0, 2));                          /* a strum: three strings at once */
++    ok = ngated(t) == 3 && gate_note(t, 48) && gate_note(t, 52) && gate_note(t, 55);
++    kup(key_of(0, 0)); kup(key_of(0, 1)); kup(key_of(0, 2));
++    ok &= ngated(t) == 0;
++    for (w = 0; w < 16u; w++) { kdown(key_of(0, w)); kup(key_of(0, w)); }              /* all sixteen strings: none hangs */
++    ok &= ngated(t) == 0;
++    bad += check("STRUM: a strum sounds the strings held and every release ends its string", ok);
++    return bad;
++}
++
++/* ---- 1.6.1_sequences: CHRD PLAY, a chord with each white key shaped by the black keys held ---- */
++static int chord_is_at(const track_t *t, uint32_t root, const int *iv)     /* exactly these tones above root sound */
++{
++    uint32_t n = 0, i;
++    for (i = 0; iv[i] >= 0; i++, n++)
++        if (!gate_note(t, root + (uint32_t)iv[i]))
++            return 0;
++    return ngated(t) == n;
++}
++static void run_blocks(uint32_t n) { while (n--) events_block(CTL); }
++static int play(void)
++{
++    int bad = 0, ok;
++    track_t *t = &trk[0];
++    uint32_t w = key_of(0, 4), root, b, i, heard, maxg;
++    static const int MAJ[] = {0, 4, 7, -1}, MIN[] = {0, 3, 7, -1}, MIN7[] = {0, 3, 7, 10, -1}, DOM7[] = {0, 4, 7, 10, -1},
++        MAJ7[] = {0, 4, 7, 11, -1}, SUS4[] = {0, 5, 7, -1}, DIM[] = {0, 3, 6, -1}, ADD9[] = {0, 4, 7, 14, -1},
++        MIN_ADD9[] = {0, 3, 7, 14, -1};
++    reset();
++    cpk_defaults();                                         /* POP: MIN, MIN7, 7, MAJ7, SUS4, SUS2, DIM, +9, 6, STRUM, ARP */
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
++    kdown(w); root = kb_note[w];
++    ok = chord_is_at(t, root, MAJ);                         /* no black key: the major chord */
++    kup(w);
++    kdown(key_of(1, 6)); ok &= ngated(t) == 0;              /* a black key alone makes no sound */
++    kdown(w); ok &= chord_is_at(t, root, DIM); kup(w);       /* key 7 held: DIM */
++    kup(key_of(1, 6));
++    kdown(key_of(1, 0)); kdown(w); ok &= chord_is_at(t, root, MIN); kup(w); kup(key_of(1, 0));
++    kdown(key_of(1, 1)); kdown(w); ok &= chord_is_at(t, root, MIN7); kup(w); kup(key_of(1, 1));
++    kdown(key_of(1, 2)); kdown(w); ok &= chord_is_at(t, root, DOM7); kup(w); kup(key_of(1, 2));
++    kdown(key_of(1, 3)); kdown(w); ok &= chord_is_at(t, root, MAJ7); kup(w); kup(key_of(1, 3));
++    kdown(key_of(1, 4)); kdown(w); ok &= chord_is_at(t, root, SUS4); kup(w); kup(key_of(1, 4));
++    bad += check("PLAY: a white key plays a major chord; the black keys held make it MIN, MIN7, 7, MAJ7, SUS4 or DIM; they alone are silent", ok);
++
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
++    kdown(key_of(1, 0)); kdown(key_of(1, 2)); kdown(w);     /* MIN then 7: a minor seventh (the lower key first) */
++    ok = chord_is_at(t, root, MIN7); kup(w); kup(key_of(1, 0)); kup(key_of(1, 2));
++    kdown(key_of(1, 0)); kdown(key_of(1, 7)); kdown(w);     /* MIN and +9 */
++    ok &= chord_is_at(t, root, MIN_ADD9); kup(w); kup(key_of(1, 0)); kup(key_of(1, 7));
++    kdown(key_of(1, 7)); kdown(w); ok &= chord_is_at(t, root, ADD9); kup(w); kup(key_of(1, 7));
++    kdown(w);                                               /* the chord is the one held when the key goes down */
++    kdown(key_of(1, 0)); ok &= chord_is_at(t, root, MAJ); kup(w); kup(key_of(1, 0));
++    bad += check("PLAY: black keys stack (MIN with 7: a minor seventh, MIN with +9), and the chord is the one held at the key press", ok);
++
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
++    cpk.act[0] = CA_A9; cpk.act[1] = CA_A11; cpk.act[2] = CA_A13; cpk.act[3] = CA_7;
++    for (b = 0; b < 4u; b++) kdown(key_of(1, b));
++    kdown(w);                                               /* 1 3 5 b7 9 11 13: seven tones, six sound: the fifth goes */
++    ok = ngated(t) == 6u && gate_note(t, root) && gate_note(t, root + 4) && gate_note(t, root + 10) && !gate_note(t, root + 7) &&
++         gate_note(t, root + 14) && gate_note(t, root + 17) && gate_note(t, root + 21);
++    kup(w);
++    for (b = 0; b < 4u; b++) kup(key_of(1, b));
++    cpk_defaults(); cpk.act[0] = CA_BASS; cpk.act[1] = CA_INV;
++    kdown(key_of(1, 0)); kdown(w); ok &= gate_note(t, root - 12) && gate_note(t, root + 4) && gate_note(t, root + 7); kup(w); kup(key_of(1, 0));
++    kdown(key_of(1, 1)); kdown(w); ok &= gate_note(t, root + 12) && gate_note(t, root + 4) && !gate_note(t, root); kup(w); kup(key_of(1, 1));
++    cpk_defaults(); cpk.act[0] = CA_SUS2; cpk.act[1] = CA_POW;                          /* the mapping is the user's */
++    kdown(key_of(1, 0)); kdown(w); ok &= gate_note(t, root + 2) && gate_note(t, root + 7) && !gate_note(t, root + 4); kup(w); kup(key_of(1, 0));
++    kdown(key_of(1, 1)); kdown(w); ok &= gate_note(t, root + 12) && ngated(t) == 3u; kup(w); kup(key_of(1, 1));
++    bad += check("PLAY: at most six tones (the fifth goes first); BASS, INV; what each black key does is the pack's (cpk)", ok);
++
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_OPEN; t->p[P_SCALE] = 0;
++    kdown(w); ok = gate_note(t, root) && gate_note(t, root + 7) && gate_note(t, root + 16); kup(w);   /* OPEN: 1 5 3' */
++    t->p[P_VOIC] = VC_CLOSE;
++    bad += check("PLAY: VOIC voices the chord as it does the other chord modes", ok);
++
++    /* STRUM: the notes one after the other (cpk.strum x 5 ms), all held until the key goes */
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
++    cpk.strum = 8;                                          /* 40 ms: 1764 samples, about 14 blocks */
++    kdown(key_of(1, 9));                                    /* STRUM */
++    kdown(w);
++    ok = ngated(t) == 1u && gate_note(t, root);             /* the lowest at once */
++    run_blocks(4);
++    ok &= ngated(t) == 1u;                                  /* the next not yet (12 ms) */
++    run_blocks(20);
++    ok &= ngated(t) == 2u && gate_note(t, root + 4);        /* about 60 ms: the second */
++    run_blocks(20);
++    ok &= ngated(t) == 3u && gate_note(t, root + 7);
++    run_blocks(30);
++    ok &= ngated(t) == 3u;                                  /* all three, held */
++    kup(w); kup(key_of(1, 9));
++    ok &= ngated(t) == 0;
++    kdown(key_of(1, 9)); kdown(w); run_blocks(2); kup(w);       /* let go before the strum is done: nothing is left to start */
++    run_blocks(80);
++    ok &= ngated(t) == 0;
++    kup(key_of(1, 9));
++    cpk.strum = 0;
++    kdown(key_of(1, 9)); kdown(w); run_blocks(1);
++    ok &= ngated(t) == 3u;                                  /* strum 0: the chord at once (within a block) */
++    kup(w); kup(key_of(1, 9));
++    bad += check("PLAY: STRUM plays the chord's notes one after the other at the pack's speed, a release ends what has started", ok);
++
++    /* ARP: one note at a time, round the chord, at the track's ARP RATE and GATE */
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
++    t->p[P_ARATE] = 2; t->p[P_AGATE] = 64;
++    song.g[G_BPM] = 120; song.g[G_SWING] = 0;
++    kdown(key_of(1, 1)); kdown(key_of(1, 10));              /* MIN7 and ARP: four notes, one at a time */
++    kdown(w);
++    heard = 0; maxg = 0;
++    {
++        uint32_t per = div_samples(2) / HALF_FRAMES + 1u, seen[4] = {0, 0, 0, 0};
++        for (i = 0; i < per * 12u; i++) {
++            uint32_t j;
++            events_block(CTL);
++            if (ngated(t) > maxg) maxg = ngated(t);
++            for (j = 0; j < 4u; j++)
++                if (gate_note(t, root + (uint32_t[]){0, 3, 7, 10}[j]))
++                    seen[j]++;
++        }
++        heard = seen[0] && seen[1] && seen[2] && seen[3];
++    }
++    ok = heard && maxg == 1u;                               /* all four heard, never two at once */
++    kup(w);
++    ok &= ngated(t) == 0;
++    run_blocks(120);
++    ok &= ngated(t) == 0;                                   /* released: it stops */
++    kup(key_of(1, 1)); kup(key_of(1, 10));
++    bad += check("PLAY: ARP plays the chord one note at a time at the track's ARP RATE, never two at once, and stops with the key", ok);
++
++    /* other modes and keys as before */
++    reset(); cpk_defaults();
++    t->p[P_CHRD] = CH_PLAY; t->p[P_VOICE] = V_MONO;
++    kdown(key_of(1, 1)); kdown(w); ok = ngated(t) == 1u; kup(w); kup(key_of(1, 1));
++    t->p[P_VOICE] = V_POLY; t->p[P_CHRD] = CH_OFF;
++    kdown(key_of(1, 1)); ok &= ngated(t) == 1u; kup(key_of(1, 1));              /* a black key sounds again in the other modes */
++    bad += check("PLAY: a MONO part plays the last of the chord; the other CHRD modes play their black keys as ever", ok);
++
++    /* the packs */
++    ok = CPK_NF >= 4u && cpk_valid(&CPK_F[0].p) && cpk_valid(&CPK_F[1].p) && cpk_valid(&CPK_F[CPK_NF - 1u].p) &&
++         str_eq(CPK_F[0].name, "POP");
++    for (i = 0; i < CPK_NF; i++)
++        ok &= cpk_valid(&CPK_F[i].p) && strlen(CPK_F[i].name) <= 5u;
++    for (i = 0; i < CA_N; i++)
++        ok &= strlen(CA_NAME[i]) <= 5u;
++    {
++        char nb[8];
++        ok &= str_eq(cpk_name(CPK_NF, nb), "USER1") && str_eq(cpk_name(CPK_NF + 3, nb), "USER4");
++    }
++    cpk_defaults();
++    ok &= !memcmp(&cpk, &CPK_F[0].p, sizeof cpk) && !memcmp(&cpk_user[2], &CPK_F[0].p, sizeof cpk);
++    bad += check("PLAY: the built in packs are valid, named, and the user's start as the first", ok);
++    return bad;
++}
++
+ int main(void)
+ {
+-    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits();
++    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits() + strum() + play();
+     printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
+     return bad != 0;
+ }
 diff --git a/tests/detail_test.c b/tests/detail_test.c
 index 669afab..bba561b 100644
 --- a/tests/detail_test.c
@@ -1783,10 +3236,19 @@ index 669afab..bba561b 100644
  }
  
 diff --git a/tests/editor_test.c b/tests/editor_test.c
-index 74c8554..219d630 100644
+index a526e54..b8fa4a9 100644
 --- a/tests/editor_test.c
 +++ b/tests/editor_test.c
-@@ -46,6 +46,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
+@@ -11,7 +11,7 @@ static unsigned char host_samples[3][0x14000];
+ #define main hostsim_main
+ #include "hostsim.c"
+ #undef main
+-#define MENU_N (32u + FELUCCA_CPU2)                  /* 1.6.1 (core.h FELUCCA_CPU2, the default): 2ND CORE, id 32 */
++#define MENU_N (33u + FELUCCA_CPU2)                  /* 1.6.1 (core.h FELUCCA_CPU2, the default): 2ND CORE, id 32; 1.6.1_sequences: SEQ SWITCH after it */
+ 
+ static uint32_t host_progress = 1, host_erases, host_writes;
+ static uint8_t host_wire[4096];
+@@ -47,6 +47,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
  static void panel_setup(void) {}
  #include "../firmware/src/upreset.c"
  #include "../firmware/src/project.c"
@@ -1794,93 +3256,44 @@ index 74c8554..219d630 100644
  
  static uint32_t flash_ok = 1;
  static void audio_silence(void) {}
-@@ -182,7 +183,7 @@ static int preferences(void)
-         host_wire[e - 33] == 0 &&                        /* (no bank since 1.0.3) */
-         host_wire[e - 32] == 0x53 && host_wire[e - 31] == 1 && host_wire[e - 30] == 3 &&
-         host_wire[e - 29] == 0x50 && host_wire[e - 28] == 1 && host_wire[e - 27] == 3 &&   /* FM6 v2: no bank, preset patches */
--        host_wire[e - 26] == 0x4E && host_wire[e - 25] == 1 && host_wire[e - 24] == 32 &&   /* MENU settings: 32 items (1.5.5) */
-+        host_wire[e - 26] == 0x4E && host_wire[e - 25] == 1 && host_wire[e - 24] == 33 &&   /* MENU settings: 33 items (1.6_sequences) */
-         host_wire[e - 23] == 0x52 && host_wire[e - 22] == 1 && host_wire[e - 21] == 4 &&   /* RATCH */
-         host_wire[e - 20] == 0x4C && host_wire[e - 19] == 1 && host_wire[e - 18] == 1 &&   /* 1.1 parameter locks */
-         host_wire[e - 17] == 0x41 && host_wire[e - 16] == 1 && host_wire[e - 15] == 0 && host_wire[e - 14] == 1 &&   /* 1.2: 128 */
-@@ -896,7 +897,7 @@ static uint32_t menu_set(uint32_t id, int32_t v)            /* -> rc; host_wire[
+@@ -897,7 +898,7 @@ static uint32_t menu_set(uint32_t id, int32_t v)            /* -> rc; host_wire[
  #define TCH_NAMES "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,OMNI,OFF"
  static int menu_protocol(void)
  {
--    static const char *const WANT[32][2] = {
-+    static const char *const WANT[33][2] = {
+-    static const char *const WANT[33][2] = {
++    static const char *const WANT[34][2] = {
          {"COLOR", 0}, {"STYLE", "FLAT,LINE"}, {"LARGE", "OFF,ON"}, {"ANIM", "ON,OFF,IDLE"}, {"LEDS", "OFF,DIM LO,DIM HI,INV,INV LO,INV HI"},
          {"HOLD", "0.3 s,0.4 s,0.5 s,0.6 s"}, {"KNOB ACCEL", "OFF,ON"}, {"FX LATCH", "OFF,ON"}, {"BPM LOCK", "OFF,ON"},
          {"SPEAKER EQ", "FLAT,LOWCUT,BASS+"}, {"USB LEVEL", "MASTER,FIXED"}, {"USB SERIAL", "ON,OFF"},
-@@ -909,9 +910,10 @@ static int menu_protocol(void)
-         {"HELP", "OFF,ON"},                                                                          /* (1.5) */
+@@ -911,9 +912,10 @@ static int menu_protocol(void)
          {"SELECT", "BPM,PAGE,MODW,VEL"},                                                             /* (1.5.5; 1.5.6 MODW VEL) */
          {"T1 CHANNEL", TCH_NAMES}, {"T2 CHANNEL", TCH_NAMES}, {"T3 CHANNEL", TCH_NAMES}, {"T4 CHANNEL", TCH_NAMES},   /* (1.5.5) */
--        {"AUTO SELECT", "OFF,ON"}, {"SCREEN WAKE", "+MIDI,PANEL"}};                                  /* (1.5.5) */
--    static const int32_t DEF[32] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0};   /* (COLOR: the default palette) */
--    static const uint8_t TAB[32] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4, 1, 3, 3, 3, 3, 3, 3};   /* DISPLAY CONTROL AUDIO
-+        {"AUTO SELECT", "OFF,ON"}, {"SCREEN WAKE", "+MIDI,PANEL"},                                 /* (1.5.5) */
-+        {"SEQ SWITCH", "NOW,END"}};                                                                  /* (1.6_sequences) */
-+    static const int32_t DEF[33] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0};   /* (COLOR: the default palette) */
-+    static const uint8_t TAB[33] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4, 1, 3, 3, 3, 3, 3, 3, 4};   /* DISPLAY CONTROL AUDIO
+         {"AUTO SELECT", "OFF,ON"}, {"SCREEN WAKE", "+MIDI,PANEL"},                                   /* (1.5.5) */
+-        {"2ND CORE", "OFF,ON (BETA)"}};                                                           /* (1.6.1; OFF the default) */
+-    static const int32_t DEF[33] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0};   /* (COLOR: the default palette) */
+-    static const uint8_t TAB[33] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4, 1, 3, 3, 3, 3, 3, 3, 4};   /* DISPLAY CONTROL AUDIO
++        {"2ND CORE", "OFF,ON (BETA)"},                                                            /* (1.6.1; OFF the default) */
++        {"SEQ SWITCH", "NOW,END"}};                                                                  /* (1.6.1_sequences) */
++    static const int32_t DEF[34] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 0, 0};   /* (COLOR: the default palette) */
++    static const uint8_t TAB[34] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4, 1, 3, 3, 3, 3, 3, 3, 4, 4};   /* DISPLAY CONTROL AUDIO
                                                                                                           * MIDI SYSTEM (1.2) */
      static const char *const TABN[5] = {"DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"};
      int bad = 0, ok = 1;
-@@ -922,7 +924,7 @@ static int menu_protocol(void)
-     FILE *jf = json ? fopen(json, "w") : 0;
-     reset();
-     if (jf) fprintf(jf, "[");
--    for (i = 0; i < 32u; i++) {
-+    for (i = 0; i < 33u; i++) {
-         n = menu_desc(i, &it);
-         joined[0] = 0;
-         for (k = 0; k < it.nnames; k++) { if (k) strcat(joined, ","); strcat(joined, it.names[k]); }
-@@ -944,7 +946,7 @@ static int menu_protocol(void)
-         }
-     }
-     if (jf) { fprintf(jf, "]\n"); fclose(jf); }
--    bad += check("MENU_DESC: 32 items (1.0.4's 12 in the menu's order, then 1.1's CLICK, CLICK LEVEL, COUNT-IN, 1.2's RESTORE LAST, SCALE LEDS, SCREEN OFF, 1.2's SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE, 1.3's HOME, 1.5's HELP, 1.5.5's SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), ids 0..31, names, defaults; TUNE a number -50..50 ct", ok);
-+    bad += check("MENU_DESC: 33 items (1.0.4's 12 in the menu's order, then 1.1's CLICK, CLICK LEVEL, COUNT-IN, 1.2's RESTORE LAST, SCALE LEDS, SCREEN OFF, 1.2's SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE, 1.3's HOME, 1.5's HELP, 1.5.5's SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), ids 0..31, names, defaults; TUNE a number -50..50 ct", ok);
-     bad += check("MENU_DESC (1.0.5): after the names (TUNE: the unit) each item's tab, index and name (DISPLAY CONTROL AUDIO MIDI SYSTEM)", ok);
-     {   /* an older editor reads the names and stops: the tab is past them, nothing it reads moved */
-         uint32_t m = menu_desc(4, &it), p = 14, q;
-@@ -954,12 +956,12 @@ static int menu_protocol(void)
-         bad += check("MENU_DESC: the tab comes after every byte of the 1.0.4 reply (older editors ignore it)", ok);
-     }
-     ok = 1;
--    for (i = 0; i < 32u; i++) {
-+    for (i = 0; i < 33u; i++) {
-         menu_desc(i, &it);
-         ok &= strcmp(it.name, "CALIBRATION") && strcmp(it.name, "ABOUT") && strcmp(it.name, "INFO");
-     }
--    n = menu_desc(32, &it);
--    ok &= n == 2u && it.index == 32 && it.id == 127;
-+    n = menu_desc(33, &it);
-+    ok &= n == 2u && it.index == 33 && it.id == 127;
-     n = menu_desc(127, &it);
-     bad += check("MENU_DESC: no CALIBRATION / INFO / ABOUT; an index past the list answers index, 127 (no item)",
-                  ok && n == 2u && it.index == 127 && it.id == 127);
-@@ -1007,8 +1009,9 @@ static int menu_protocol(void)
-           ui_prefs2 == 31u;                             /* (its own byte: SELECT's bit 4 untouched) */
-     ok &= menu_set(31, 1) == 3 && ui_prefs2 == 63u && (ui_rec_prefs & 0x80u) && ui_scr == 1u;   /* (1.5.5: SCREEN WAKE
+@@ -1011,11 +1013,12 @@ static int menu_protocol(void)
                                                           * PANEL, bit 5 of ui_prefs2; SCREEN OFF's byte untouched) */
--    for (i = 0; i < 32u; i++) {                         /* MENU_DESC reads them back */
--        static const int32_t SET[32] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1};
-+    ok &= menu_set(32, 1) == 3 && ui_prefs2 == 191u;     /* (1.6_sequences: SEQ SWITCH END, bit 7) */
-+    for (i = 0; i < 33u; i++) {                         /* MENU_DESC reads them back */
-+        static const int32_t SET[33] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1, 1};
+ #if FELUCCA_CPU2
+     ok &= menu_set(32, 1) == 3 && ui_prefs2 == 0xBFu;   /* (2ND CORE ON (BETA), bit 7 of ui_prefs2) */
++    ok &= menu_set(33, 1) == 3 && ui_prefs3 == 1u;      /* (1.6.1_sequences: SEQ SWITCH END, bit 0 of its own byte) */
+ #else
+-    ok &= menu_set(32, 1) == 1 && ui_prefs2 == 0x3Fu;   /* (no 2ND CORE in a FELUCCA_CPU2=0 build: an unknown id, nothing set) */
++    ok &= menu_set(32, 1) == 3 && ui_prefs2 == 0x3Fu && ui_prefs3 == 1u;   /* (no 2ND CORE in a FELUCCA_CPU2=0 build: SEQ SWITCH is id 32) */
+ #endif
+     for (i = 0; i < MENU_N; i++) {                         /* MENU_DESC reads them back */
+-        static const int32_t SET[33] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1, 1};
++        static const int32_t SET[34] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1, 1, 9, 16, 17, 0, 1, 1, 1, 1};
          menu_desc(i, &it);
          ok &= it.value == SET[i];
      }
-@@ -1036,7 +1039,7 @@ static int menu_protocol(void)
-         static uint8_t fav0[sizeof favorites], set0[sizeof settings];
-         uint8_t hold0 = settings_hold, leds0 = settings_leds;
-         memcpy(fav0, &favorites, sizeof favorites); memcpy(set0, &settings, sizeof settings);
--        ok = menu_set(32, 1) == 1 && host_wire[6] == 32 && ed_rv(host_wire + 7) == 1;
-+        ok = menu_set(33, 1) == 1 && host_wire[6] == 33 && ed_rv(host_wire + 7) == 1;
-         ok &= menu_set(126, -3) == 1 && host_wire[6] == 126 && ed_rv(host_wire + 7) == -3;
-         ok &= menu_set(127, 0) == 1 && host_wire[6] == 127;
-         ok &= !memcmp(fav0, &favorites, sizeof favorites) && !memcmp(set0, &settings, sizeof settings) &&
 diff --git a/tests/fm6bank_test.c b/tests/fm6bank_test.c
 index 034e8b5..7213d5f 100644
 --- a/tests/fm6bank_test.c
@@ -1893,12 +3306,214 @@ index 034e8b5..7213d5f 100644
  
  static uint8_t rep[1024];                         /* the editor's reply */
  static uint32_t rep_n;
+diff --git a/tests/gen_test.c b/tests/gen_test.c
+new file mode 100644
+index 0000000..8b393c6
+--- /dev/null
++++ b/tests/gen_test.c
+@@ -0,0 +1,173 @@
++/* SPDX-License-Identifier: GPL-3.0-only
++ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
++/* The ARP's GEN mode (seq.c gen_*, 1.6_sequences), on the real sequencer and UI sources (with the stubs of tests/ui_test.c):
++ *   pitch     every note in the track's SCALE over ROOT + OCT octaves (TRN added), re-pitched as they are turned
++ *   density   DENS 0 nothing, 127 every step; a lower DENS plays a subset of what a higher one plays (the same loop)
++ *   chord     CHORD 0 single notes; from 1 a fifth or a third, triads, sevenths, 9ths and quartals as it grows; all in the scale
++ *   evolve    EVOLVE 0 the same loop every time; more changes more of the steps each loop
++ *   play      only while the music plays, from the first step; the keys play as with the arp OFF; leaving GEN starts it over
++ * Built and run by tests/run_tests.sh. */
++#define UI_TEST_NO_MAIN 1
++#include "ui_test.c"
++
++#define LOOP_N 16u
++static track_t *gen_track(void)
++{
++    track_t *t;
++    ui_power_on();
++    song.sel = 0;
++    t = &trk[0];
++    track_defaults_steps(t);
++    motion_clear(t);
++    memset(gen, 0, sizeof gen);
++    gen_defaults();
++    t->p[P_AMODE] = AM_GEN; t->p[P_ARATE] = 2; t->p[P_AOCT] = 2; t->p[P_AGATE] = 64; t->p[P_APROB] = 127; t->p[P_ASWING] = 0;
++    t->p[P_SLEN] = (int16_t)LOOP_N; t->p[P_ROOT] = 0; t->p[P_SCALE] = 1; t->p[P_TRANS] = 0; t->p[P_VOICE] = V_POLY;
++    song.g[G_SWING] = 0; song.g[G_BPM] = 120;
++    gen_set[0][GS_DENS] = 127; gen_set[0][GS_CHORD] = 0; gen_set[0][GS_EVOLVE] = 0;
++    song.playing = 1;
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; t->armp = AM_GEN;
++    return t;
++}
++/* the note-ons of `loops` loops of the track: (arp step, note) pairs; returns how many */
++typedef struct { uint8_t step, note; } hit_t;
++static uint32_t listen(track_t *t, uint32_t loops, hit_t *h, uint32_t hmax)
++{
++    uint32_t blocks = loops * LOOP_N * div_samples(2) / CTL + 2u, b, n = 0, i;
++    for (b = 0; b < blocks; b++) {
++        uint32_t v0 = vage;
++        arp_tick(t, CTL);
++        for (; v0 < vage; v0++)
++            for (i = 0; i < NVOICE; i++)
++                if (t->v[i].age == v0 + 1u && n < hmax) {
++                    h[n].step = (uint8_t)(t->arp_idx % LOOP_N);
++                    h[n++].note = t->v[i].note;
++                }
++    }
++    return n;
++}
++static uint32_t in_scale(const track_t *t, uint32_t note)
++{
++    return (scale_mask(t) >> (((int32_t)note - t->p[P_ROOT] - t->p[P_TRANS] + 120) % 12)) & 1u;
++}
++static uint32_t steps_mask(const hit_t *h, uint32_t n)
++{
++    uint32_t m = 0, i;
++    for (i = 0; i < n; i++)
++        m |= 1u << h[i].step;
++    return m;
++}
++
++int main(void)
++{
++    int bad = 0, ok;
++    static hit_t h[1024], h2[1024];
++    track_t *t;
++    uint32_t n, i, m0, m1, m2, m3;
++
++    t = gen_track();
++    n = listen(t, 1, h, 1024);
++    ok = n == LOOP_N;
++    for (i = 0; i < n; i++)
++        ok &= in_scale(t, h[i].note) && h[i].note >= 48 && h[i].note < 48 + 24;
++    bad += check("GEN: DENS 127 plays every step of the loop, each note in the scale, over OCT octaves from C3", ok);
++
++    t = gen_track();
++    t->p[P_ROOT] = 2; t->p[P_SCALE] = 5; t->p[P_TRANS] = 7; t->p[P_AOCT] = 3;      /* D, pentatonic, +7, 3 octaves */
++    n = listen(t, 2, h, 1024);
++    ok = n == 2u * LOOP_N;
++    for (i = 0; i < n; i++)
++        ok &= in_scale(t, h[i].note) && h[i].note >= 48 + 2 + 7 && h[i].note <= 48 + 2 + 7 + 36;
++    bad += check("GEN: ROOT, SCALE, TRN and OCT set the pitches (D pentatonic up a fifth over three octaves)", ok);
++
++    /* density: the same loop at several DENS; a lower DENS plays a subset of a higher one's steps */
++    t = gen_track();
++    gen_set[0][GS_DENS] = 0;
++    n = listen(t, 1, h, 1024); ok = n == 0;
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_DENS] = 40;
++    n = listen(t, 1, h, 1024); m0 = steps_mask(h, n);
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_DENS] = 80;
++    n = listen(t, 1, h, 1024); m1 = steps_mask(h, n);
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_DENS] = 120;
++    n = listen(t, 1, h, 1024); m2 = steps_mask(h, n);
++    ok &= (m0 & ~m1) == 0 && (m1 & ~m2) == 0 && __builtin_popcount(m0) < __builtin_popcount(m2) && __builtin_popcount(m2) >= 12;
++    bad += check("GEN: DENS 0 plays nothing; more DENS adds steps to the same loop, never moves them", ok);
++
++    /* chord */
++    t = gen_track();
++    n = listen(t, 1, h, 1024);
++    ok = n == LOOP_N;                                       /* CHORD 0: one note a step */
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_CHORD] = 127;
++    n = listen(t, 1, h, 1024);
++    {
++        uint32_t per[LOOP_N] = {0}, mx = 0, mn = 99;
++        for (i = 0; i < n; i++) { per[h[i].step]++; ok &= in_scale(t, h[i].note); }
++        for (i = 0; i < LOOP_N; i++) { if (per[i] > mx) mx = per[i]; if (per[i] < mn) mn = per[i]; }
++        ok &= n > 2u * LOOP_N && mn >= 3u && mx <= 4u;       /* every step a chord of 3 or 4 notes at CHORD 127 */
++    }
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_CHORD] = 40;
++    n = listen(t, 1, h, 1024);
++    {
++        uint32_t per[LOOP_N] = {0}, mx = 0;
++        for (i = 0; i < n; i++) per[h[i].step]++;
++        for (i = 0; i < LOOP_N; i++) if (per[i] > mx) mx = per[i];
++        ok &= mx == 3u;                                      /* triads at 32..63 */
++    }
++    t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; gen_set[0][GS_CHORD] = 8;
++    n = listen(t, 1, h, 1024);
++    {
++        uint32_t per[LOOP_N] = {0}, mx = 0;
++        for (i = 0; i < n; i++) per[h[i].step]++;
++        for (i = 0; i < LOOP_N; i++) if (per[i] > mx) mx = per[i];
++        ok &= mx <= 2u;                                      /* a fifth or a third below 32 */
++    }
++    bad += check("GEN: CHORD 0 single notes; low a fifth or third, then triads, sevenths and extended chords (3..4 notes), all in the scale", ok);
++
++    /* evolve */
++    t = gen_track();
++    gen_set[0][GS_DENS] = 127; gen_set[0][GS_EVOLVE] = 0;
++    n = listen(t, 3, h, 1024);
++    ok = n == 3u * LOOP_N;
++    for (i = 0; i < LOOP_N; i++)
++        ok &= h[i].note == h[LOOP_N + i].note && h[i].note == h[2u * LOOP_N + i].note;      /* the same loop three times */
++    {
++        uint32_t chg_lo = 0, chg_hi = 0, loops = 16u, l, k;
++        t = gen_track(); gen_set[0][GS_EVOLVE] = 24;
++        n = listen(t, loops, h, 1024);
++        for (l = 1; l < loops && n >= (l + 1u) * LOOP_N; l++)
++            for (k = 0; k < LOOP_N; k++)
++                chg_lo += h[l * LOOP_N + k].note != h[(l - 1u) * LOOP_N + k].note;
++        t = gen_track(); gen_set[0][GS_EVOLVE] = 127;
++        n = listen(t, loops, h2, 1024);
++        for (l = 1; l < loops && n >= (l + 1u) * LOOP_N; l++)
++            for (k = 0; k < LOOP_N; k++)
++                chg_hi += h2[l * LOOP_N + k].note != h2[(l - 1u) * LOOP_N + k].note;
++        ok &= chg_lo > 0u && chg_hi > chg_lo * 2u && chg_lo < (loops - 1u) * LOOP_N / 2u;    /* gentle at 24, much more at 127 */
++        for (i = 0; i < n; i++) ok &= in_scale(t, h2[i].note);
++    }
++    bad += check("GEN: EVOLVE 0 repeats the loop; some steps change each loop at 24, many more at 127, always in the scale", ok);
++
++    /* play: only while the music plays, from the first step; keys play as with the arp off */
++    t = gen_track();
++    song.playing = 0;
++    n = listen(t, 1, h, 1024);
++    ok = n == 0 && t->arp_idx == 0xFFFFFFFFu;
++    song.playing = 1;
++    n = listen(t, 1, h, 1024);
++    ok &= n == LOOP_N && h[0].step == 0;
++    {
++        uint32_t v0 = vage, k, hit = 0;
++        input_on(t, 61, 100);
++        for (k = 0; k < NVOICE; k++)
++            hit |= t->v[k].age > v0 && t->v[k].note == 61u;
++        ok &= t->nheld == 0 && hit;                          /* a key plays itself (it is not fed to the arp) */
++    }
++    input_off(t, 61);
++    t->p[P_AMODE] = AM_UP; input_on(t, 61, 100);
++    ok &= t->nheld == 1;                                     /* another mode: as before */
++    input_off(t, 61);
++    bad += check("GEN: silent while stopped, starts on its first step at PLAY; the keys play as with the arp OFF", ok);
++
++    printf(bad ? "gen test FAILED\n" : "gen tests passed\n");
++    return bad != 0;
++}
+diff --git a/tests/motion_test.c b/tests/motion_test.c
+index 4ab957b..5bf47e3 100644
+--- a/tests/motion_test.c
++++ b/tests/motion_test.c
+@@ -253,14 +253,14 @@ static int arp_new_modes(void)
+     track_t *t;
+     ui_power_on();
+     t = &trk[0];
+-    ok = TP[P_AMODE].max == 14 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
++    ok = TP[P_AMODE].max == 15 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
+          str_eq(TP[P_AMODE].names[8], "UP+8") && str_eq(TP[P_AMODE].names[9], "CONV") &&
+          str_eq(TP[P_AMODE].names[10], "DIVG") && str_eq(TP[P_AMODE].names[11], "PINKY") &&
+          str_eq(TP[P_AMODE].names[12], "THUMB") && str_eq(TP[P_AMODE].names[13], "WALK") &&
+-         str_eq(TP[P_AMODE].names[14], "CHORD");
+-    for (i = 0; i <= 14u; i++)
++         str_eq(TP[P_AMODE].names[14], "CHORD") && str_eq(TP[P_AMODE].names[15], "GEN");     /* (1.6_sequences: GEN) */
++    for (i = 0; i <= 15u; i++)
+         ok &= strlen(TP[P_AMODE].names[i]) <= 6u;
+-    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD appended (<= 6 chars)", ok);
++    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD GEN appended (<= 6 chars)", ok);
+     /* the modes before 1.2 play as they did */
+     arp_fresh(t, AM_UP, 1, CEG, 3);   ok = arp_plays(t, (const uint8_t[]){60, 64, 67, 60}, 4);
+     arp_fresh(t, AM_DN, 1, CEG, 3);   ok &= arp_plays(t, (const uint8_t[]){67, 64, 60, 67}, 4);
 diff --git a/tests/patbank_test.c b/tests/patbank_test.c
 new file mode 100644
-index 0000000..07210a0
+index 0000000..748f09c
 --- /dev/null
 +++ b/tests/patbank_test.c
-@@ -0,0 +1,429 @@
+@@ -0,0 +1,485 @@
 +/* SPDX-License-Identifier: GPL-3.0-only
 + * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 +/* Eight sequences per track (patbank.c, patbank_store.c): the packed steps are a project's, a switch keeps each sequence's
@@ -1984,6 +3599,8 @@ index 0000000..07210a0
 +    erase_error = 0;
 +    fail_after = -1;
 +    ui_prefs2 = 0;
++    ui_prefs3 = 0;
++    cpk_defaults();
 +    pb_ready = 0;
 +    pb_dirty = 0;
 +    pb_clear_all();
@@ -2161,14 +3778,14 @@ index 0000000..07210a0
 +
 +    {   /* MENU > CONTROL > SEQ SWITCH: NOW at once; END, while playing, at the end of the sequence playing */
 +        reset();
-+        ok = !(ui_prefs2 & (PREF_SEQ_END >> 16)) && menu_n(MI_SEQSW) == 2u && !strcmp(MI_NAME[MI_SEQSW], "SEQ SWITCH") &&
++        ok = !(ui_prefs3 & (PREF_SEQ_END >> 24)) && menu_n(MI_SEQSW) == 2u && !strcmp(MI_NAME[MI_SEQSW], "SEQ SWITCH") &&
 +             !strcmp(menu_vname(MI_SEQSW, 0), "NOW") && !strcmp(menu_vname(MI_SEQSW, 1), "END") && MI_TAB[MI_SEQSW] == MTAB_SYSTEM;
 +        song.playing = 1;
 +        trk[0].p[P_SLEN] = 16; trk[0].seq_idx = 3;
 +        (void)pb_request(0, 2);
 +        ok &= pb_cur[0] == 2 && !pb_next[0];                       /* NOW (the default): at once, playing or not */
 +        menu_put(MI_SEQSW, 1);
-+        ok &= menu_get(MI_SEQSW) == 1 && (ui_prefs2 & (PREF_SEQ_END >> 16));
++        ok &= menu_get(MI_SEQSW) == 1 && (ui_prefs3 & (PREF_SEQ_END >> 24));
 +        (void)pb_request(0, 5);
 +        for (t = 0; t < NTRK; t++) (void)pb_due(t);
 +        ok &= pb_cur[0] == 2 && pb_next[0] == 6;                   /* END, playing: waits (step 4 of 16) */
@@ -2325,6 +3942,60 @@ index 0000000..07210a0
 +        bad += check("SONG: a lost store: the chosen sequence is empty, the song plays", ok);
 +    }
 +
++    {   /* the ARP's GEN knobs (DENS, CHORD, EVOLVE of the four tracks) are saved with the sequence banks */
++        reset();
++        ok = gen_set[0][GS_DENS] == 64 && gen_set[0][GS_CHORD] == 0 && gen_set[0][GS_EVOLVE] == 24;
++        gen_set[0][GS_DENS] = 100; gen_set[0][GS_CHORD] = 70; gen_set[0][GS_EVOLVE] = 5;
++        gen_set[3][GS_DENS] = 12; gen_set[3][GS_CHORD] = 127; gen_set[3][GS_EVOLVE] = 99;
++        pb_dirty |= 7u; pb_gen++;
++        ok &= project_save_as(0, "GEN") == 0;
++        gen_defaults();
++        memset(proj_slot, 0, sizeof proj_slot);
++        ok &= gen_set[0][GS_DENS] == 64;
++        project_load(0);
++        ok &= gen_set[0][GS_DENS] == 100 && gen_set[0][GS_CHORD] == 70 && gen_set[0][GS_EVOLVE] == 5 &&
++              gen_set[3][GS_DENS] == 12 && gen_set[3][GS_CHORD] == 127 && gen_set[3][GS_EVOLVE] == 99 && gen_set[1][GS_DENS] == 64;
++        gen_set[1][GS_EVOLVE] = 50; pb_dirty |= 7u; pb_gen++;      /* the autosave (the live store) */
++        as_run(120000u);
++        power_cycle();
++        ok &= gen_set[1][GS_EVOLVE] == 50 && gen_set[0][GS_DENS] == 100 && gen_set[3][GS_CHORD] == 127;
++        /* a project saved with the defaults loads them back over another's values */
++        gen_defaults(); pb_dirty |= 7u; pb_gen++;
++        ok &= project_save_as(2, "DEF") == 0;
++        gen_set[0][GS_DENS] = 1; gen_set[3][GS_CHORD] = 99;
++        memset(proj_slot, 0, sizeof proj_slot);
++        project_load(2);
++        ok &= gen_set[0][GS_DENS] == 64 && gen_set[3][GS_CHORD] == 0 && gen_set[1][GS_EVOLVE] == 24;
++        bad += check("GEN's DENS, CHORD, EVOLVE: kept by project SAVE / LOAD and the autosave; a project without them: the defaults", ok);
++    }
++
++    {   /* CHRD PLAY's chord packs (what the black keys do, the user's packs) are saved with the music */
++        reset();
++        ok = !memcmp(&cpk, &CPK_F[0].p, sizeof cpk) && !memcmp(&cpk_user[3], &CPK_F[0].p, sizeof cpk);
++        cpk.act[0] = CA_SUS2; cpk.act[5] = CA_A13; cpk.act[10] = CA_ARP; cpk.strum = 17;
++        cpk_user[1].act[3] = CA_DIM7; cpk_user[1].strum = 3;
++        cpk_touch();
++        ok &= project_save_as(0, "CPK") == 0;
++        cpk_defaults();
++        memset(proj_slot, 0, sizeof proj_slot);
++        ok &= cpk.act[0] == CA_MIN;
++        project_load(0);
++        ok &= cpk.act[0] == CA_SUS2 && cpk.act[5] == CA_A13 && cpk.act[10] == CA_ARP && cpk.strum == 17 &&
++              cpk_user[1].act[3] == CA_DIM7 && cpk_user[1].strum == 3 && !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk);
++        cpk_user[2].act[1] = CA_MAJ9; cpk_touch();                  /* the autosave (the live store) */
++        as_run(120000u);
++        power_cycle();
++        ok &= cpk_user[2].act[1] == CA_MAJ9 && cpk.act[5] == CA_A13 && cpk_user[1].strum == 3;
++        /* a project saved with another pack: its own on loading */
++        cpk_defaults(); cpk.strum = 5; cpk_touch();
++        ok &= project_save_as(2, "OTHER") == 0;
++        cpk.strum = 33; cpk.act[2] = CA_AUG;
++        memset(proj_slot, 0, sizeof proj_slot);
++        project_load(2);
++        ok &= cpk.strum == 5 && cpk.act[2] == CA_7;
++        bad += check("the chord packs (what each black key does, the user's four) are kept by project SAVE / LOAD and the autosave", ok);
++    }
++
 +    printf(bad ? "patbank test FAILED\n" : "patbank test passed\n");
 +    return bad != 0;
 +}
@@ -2341,26 +4012,35 @@ index 7aa8fda..8145dd2 100644
  enum { ED_UI_STATE = 34, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET };
  static uint8_t ed_rep[64];                        /* the reply's bytes (MENU_SET) */
 diff --git a/tests/run_tests.sh b/tests/run_tests.sh
-index 6f65a01..e148913 100755
+index 056e338..20bc55e 100755
 --- a/tests/run_tests.sh
 +++ b/tests/run_tests.sh
-@@ -303,7 +303,7 @@ if [ -f build/gen/felucca_tables.h ]; then
+@@ -275,6 +275,8 @@ if [ -f build/gen/felucca_tables.h ]; then
+     run "1.5.1 SEQ > DETAIL: a step's CHANCE RATCH NUDGE VEL on KNOB 1..4 (walk, entries, undo, DRUM, chords, playback, marks)" "$OUT/detail_test"
+     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/seq155_test" tests/seq155_test.c -lm
+     run "1.5.5 SEQ: conditions and FILL, SONG, storage, editor; SEQ TOOLS EUCLID, DOUBLE, HALF" "$OUT/seq155_test"
++    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/gen_test" tests/gen_test.c -lm
++    run "1.6_sequences ARP GEN: generative notes of the scale, DENS, CHORD, EVOLVE, play and keys" "$OUT/gen_test"
+     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui155_test" tests/ui155_test.c -lm
+     run "1.5.5 fixes and UI: PAN +-100, AUTOMATION KNOB 3, SELECT PAGE, OCT- on the press (1.5.6), PROJECT ERASE, CLEAN INIT" "$OUT/ui155_test"
+     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/v156_test" tests/v156_test.c -lm
+@@ -305,7 +307,7 @@ if [ -f build/gen/felucca_tables.h ]; then
      fi
      $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
      run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
 -    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
 +    $CC -DFELUCCA_USERSMP=1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
      run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray, MONO neutral" "$OUT/ui_test"
-     $CC -DPREEMPT -g -fwrapv -fsanitize=address,undefined -fno-sanitize=shift -fno-sanitize-recover=all -w \
-         -Ibuild/gen -Ifirmware/src -o "$OUT/drumfuzz" tests/drumfuzz_test.c -lm
-@@ -311,14 +311,14 @@ if [ -f build/gen/felucca_tables.h ]; then
+     $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_c1" tests/ui_test.c -lm
+     run "UI, a FELUCCA_CPU2=0 build: MENU > SYSTEM without 2ND CORE, the rest as the default build" "$OUT/ui_test_c1"
+@@ -315,14 +317,14 @@ if [ -f build/gen/felucca_tables.h ]; then
          "$OUT/drumfuzz" 1 6 1500
      run "DRUM grid stress (#211) with a SONG playing" "$OUT/drumfuzz" 101 3 1500 song
-     FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)   # (the splash, ABOUT: the real version)
+     FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c | head -n 1)   # (the splash, ABOUT: the real version)
 -    $CC -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
 +    $CC -DFELUCCA_USERSMP=1 -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
      mkdir -p build/ui_new/ppm build/ui_slot
-     run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost" \
+     run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost, LARGE one value size per knob (#251)" \
          "$OUT/ui_render" build/ui_new build/ui_slot
      if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_new build/ui_slot; fi
 -    $CC -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
@@ -2371,7 +4051,7 @@ index 6f65a01..e148913 100755
      mkdir -p build/ui_fm4/ppm build/ui_fm4_slot
      run "UI renders with FELUCCA_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, GREY gray, MONO neutral" \
          "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
-@@ -327,12 +327,14 @@ if [ -f build/gen/felucca_tables.h ]; then
+@@ -331,12 +333,14 @@ if [ -f build/gen/felucca_tables.h ]; then
      $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
      run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
      $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
@@ -2387,8 +4067,8 @@ index 6f65a01..e148913 100755
 +    $CC -DFELUCCA_USERSMP=1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
      run "editor: real C protocol, malformed transfers, queue recovery, MENU settings (writes build/host/menu.json)" \
          env MENU_JSON="$OUT/menu.json" "$OUT/editor_test"
-     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/robust_test" tests/robust_test.c -lm
-@@ -404,7 +406,7 @@ if [ -f build/gen/felucca_tables.h ]; then
+     $CC -w -DFELUCCA_CPU2=0 -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test_c1" tests/editor_test.c -lm
+@@ -433,7 +437,7 @@ if [ -f build/gen/felucca_tables.h ]; then
          mkdir -p build/slice_demo
          python3 tests/slice_loop.py build/slice_demo/loop
          python3 tools/fm1_sample_upload.py build LOOP build/slice_demo/loop build/slice_demo/loop.wav:60 >/dev/null
@@ -2397,7 +4077,7 @@ index 6f65a01..e148913 100755
          run "SLICE: tables, onsets, reverse, keys, modes, MAN slices and their store, demos" "$OUT/slice_test" \
              build/slice_demo/loop build/slice_demo
      else
-@@ -415,7 +417,7 @@ if [ -f build/gen/felucca_tables.h ]; then
+@@ -444,7 +448,7 @@ if [ -f build/gen/felucca_tables.h ]; then
      if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
          mkdir -p build/sample_demo build/piano_hd
          python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
@@ -2407,30 +4087,30 @@ index 6f65a01..e148913 100755
              build/piano_hd/PIANO_HD build/sample_demo
      else
 diff --git a/tests/ui_render.c b/tests/ui_render.c
-index ae51aae..0147022 100644
+index b921d08..9eb2d5c 100644
 --- a/tests/ui_render.c
 +++ b/tests/ui_render.c
-@@ -768,7 +768,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
+@@ -772,7 +772,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
         S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS, S_HELP_DETAIL,
         S_DETAIL_COND, S_DETAIL_FILL, S_AUTO_COND, S_GLO_FILL, S_SEQ_EUCLID, S_SEQ_EUCLID_DRUM, S_SEQ_EUCLID_64,
         S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
 -       S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD, S_COUNT };
 +       S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
-+       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_COUNT };
++       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_GEN, S_GEN_OFF, S_CHORD_STRUM, S_CHORDS, S_CHORDS_USER, S_COUNT };
  static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
      "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
      "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
-@@ -799,7 +800,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
+@@ -803,7 +804,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
      "detail_cond", "detail_fill", "auto_cond", "layer_glo_fill", "layer_seq_euclid", "layer_seq_euclid_drum",
      "layer_seq_euclid_64",
      "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
 -    "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold"};
 +    "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
-+    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain"};
++    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain", "gen", "gen_off", "chord_strum", "chords", "chords_user"};
  
  /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
   * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
-@@ -1037,7 +1039,7 @@ static void setup(int s)
+@@ -1041,7 +1043,7 @@ static void setup(int s)
      /* 1.2: SONG's lanes (ui_graph.c graph_song): four lanes, runs of one slot merged, "-" gaps, the cell selected (section
       * 3, T2); playing (section 2, its playhead across the lanes); the cursor on a "-" cell (T1 silent in section 2: the
       * section counts T2's loop) */
@@ -2439,7 +4119,7 @@ index ae51aae..0147022 100644
          static const uint8_t R[5][5] = {{0, 0, 2, 1, 2}, {4, 0, 2, 1, 1}, {1, 1, 4, 1, 4}, {1, 0, 4, 3, 1}, {0, 0, 2, 4, 2}};
          uint32_t k;
          song.playing = 0;
-@@ -1045,6 +1047,9 @@ static void setup(int s)
+@@ -1049,6 +1051,9 @@ static void setup(int s)
          chain_config.count = 5;
          for (k = 0; k < 5u; k++) chain_config.row[k] = (chain_row_t){{R[k][0], R[k][1], R[k][2], R[k][3]}, R[k][4]};
          ui.song_row = s == S_SONG_LANES_SILENT ? 1 : 2; ui.song_trk = s == S_SONG_LANES_SILENT ? 0 : 1;
@@ -2449,17 +4129,52 @@ index ae51aae..0147022 100644
          go_page(GR_SONG); ui.msg_t = 0; sg_fresh();
          if (s == S_SONG_LANES_PLAYING) {
              chain_prepare(); events_block(32);
-@@ -1204,6 +1209,32 @@ static void setup(int s)
+@@ -1126,6 +1131,19 @@ static void setup(int s)
+         go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
+         break;
+     }
++    case S_CHORDS: case S_CHORDS_USER:               /* 1.6.1_sequences SAVE > CHORDS: the JAZZ pack, key 3 (7) picked; a user pack, changed */
++        TSEL->p[P_CHRD] = s == S_CHORDS ? CH_PLAY : CH_OFF;
++        cpk_defaults(); cpk_sel = s == S_CHORDS ? 1 : (uint8_t)CPK_NF + 1u; cpk_key = 2;
++        cpk = *cpk_pack(cpk_sel);
++        if (s == S_CHORDS_USER) { cpk.act[2] = CA_MIN9; cpk.act[7] = CA_A11; cpk.strum = 12; }
++        go_title("CHORDS"); ui.hot_col = 2; ui.hot_t = 30;
++        break;
++    case S_CHORD_STRUM:                              /* 1.6.1_sequences: STR7, the black key of the V chord chosen: G7 */
++        TSEL->p[P_VOICE] = V_POLY; TSEL->p[P_ROOT] = 0; TSEL->p[P_SCALE] = 1;
++        TSEL->p[P_CHRD] = CH_STR7; TSEL->p[P_VOIC] = VC_CLOSE;
++        strum_select(TSEL, 4u);
++        go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
++        break;
+     case S_CHORD_OFF: go_title("CHORD"); break;
+     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
+     case S_ARP: go_title("ARP"); break;
+@@ -1208,6 +1226,47 @@ static void setup(int s)
          song.playing = 1; ui.layer = LAYER_FX;
          perf_held = perf_act = PF_BIT(PF_RTHR) | PF_BIT(PF_ETHR);
          break;
 +    case S_SEQUENCE:                                   /* 1.6 SEQ > SEQUENCE: T1 plays 3 (of 1, 3, 4 with notes), T3 plays 2, T4 8 */
++    case S_GEN: case S_GEN_OFF: {                      /* 1.6 ARP > GEN: the loop as GEN made it, playing (or the arp's MODE not GEN) */
++        track_t *tg = &trk[0];
++        memset(gen, 0, sizeof gen); gen_defaults();
++        gen_set[0][GS_DENS] = 80; gen_set[0][GS_CHORD] = 50; gen_set[0][GS_EVOLVE] = 30;
++        tg->p[P_AMODE] = s == S_GEN ? AM_GEN : AM_UP; tg->p[P_ARATE] = 2; tg->p[P_AOCT] = 2; tg->p[P_SLEN] = 16; tg->p[P_SCALE] = 1;
++        song.sel = 0; song.playing = s == S_GEN;
++        tg->arp_pos = 0xFFFFFFF; tg->arp_idx = 0xFFFFFFFFu;
++        if (s == S_GEN) {
++            uint32_t b;
++            for (b = 0; b < 40u; b++)
++                arp_tick(tg, CTL);
++        }
++        go_page(GR_GENS);
++        break;
++    }
 +    case S_SEQUENCE_FULL:
 +    case S_SEQUENCE_CHAIN:
 +    case S_SEQUENCE_NEXT: {
 +        uint32_t t, q;
 +        memset(pb_next, 0, sizeof pb_next); memset(pb_cmask, 0, sizeof pb_cmask);
-+        ui_prefs2 &= (uint8_t)~(PREF_SEQ_END >> 16); song.playing = 0;
++        ui_prefs3 &= (uint8_t)~(PREF_SEQ_END >> 24); song.playing = 0;
 +        for (t = 0; t < NTRK; t++)
 +            for (q = 0; q < PB_N; q++) {
 +                if (!(s == S_SEQUENCE_FULL || (t == 0u && (q == 0u || q == 2u || q == 3u)) || (t == 2u && q == 1u)))
@@ -2473,7 +4188,7 @@ index ae51aae..0147022 100644
 +            pb_chain_set(0, 2, 1); pb_chain_set(0, 3, 1); pb_chain_set(0, 5, 1); pb_chain_set(2, 1, 1); pb_chain_set(2, 6, 1);
 +        }
 +        if (s == S_SEQUENCE_NEXT) {                    /* SEQ SWITCH END, playing: T1 and T3 wait (for 6 and 1) */
-+            ui_prefs2 |= (uint8_t)(PREF_SEQ_END >> 16); song.playing = 1;
++            ui_prefs3 |= (uint8_t)(PREF_SEQ_END >> 24); song.playing = 1;
 +            (void)pb_request(0, 5); (void)pb_request(2, 0);
 +        }
 +        go_page(GR_SEQS); ui.hot_col = 2; ui.hot_t = 30;
@@ -2483,7 +4198,7 @@ index ae51aae..0147022 100644
          ui.menu = 3; ui.menu_sel = MI_INFO; song.cpu_q8 = 87u;   /* (34 %; USB: the host has none, OFF) */
          info.t = fm1_ms - INFO_CPU_MS;
 diff --git a/tests/ui_test.c b/tests/ui_test.c
-index 281ec8c..9678a69 100644
+index 4f8b4a8..d9ad1cf 100644
 --- a/tests/ui_test.c
 +++ b/tests/ui_test.c
 @@ -157,6 +157,7 @@ static struct { uint32_t stage; } felucca_dbg;
@@ -2498,17 +4213,17 @@ index 281ec8c..9678a69 100644
              }
      }
      ui_prefs = 0;
--    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 6 rows; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
-+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 7 rows; 1.6_sequences: SEQ SWITCH in SYSTEM; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
+-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 7 rows: 1.6.1 2ND CORE, a FELUCCA_CPU2=0 build SYSTEM 6; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
++    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 8 6 8 8 rows: 1.6.1 2ND CORE, a FELUCCA_CPU2=0 build SYSTEM 7; 1.6.1_sequences: SEQ SWITCH; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT, SCREEN WAKE), 1..8 each in a run, fit the page; tab gaps "
                   "constant (S, LARGE)",
                   ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
                   mtab_rows(MTAB_DISPLAY) == 8u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 8u && MI_TAB[MI_SELECT] == MTAB_CONTROL && mtab_rows(MTAB_AUDIO) == 6u &&
--                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
-+                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 7u && MI_TAB[MI_SEQSW] == MTAB_SYSTEM && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
-                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES);
- 
-     ui_power_on();
-@@ -2614,6 +2615,8 @@ static int test_presets_knob(void)
+-                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u + FELUCCA_CPU2 &&
++                 mtab_rows(MTAB_MIDI) == 8u && MI_TAB[MI_MFOLLOW] == MTAB_MIDI && MI_TAB[MI_SCRWAKE] == MTAB_MIDI && MI_SCRWAKE + 1u == MI_LCLEAR && MI_TAB[MI_LCLEAR] == MTAB_MIDI && MI_TAB[MI_TCH4] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 7u + FELUCCA_CPU2 && MI_TAB[MI_SEQSW] == MTAB_SYSTEM &&   /* (1.6.1_sequences: SEQ SWITCH) */
+ #if FELUCCA_CPU2
+                  MI_TAB[MI_CPU2] == MTAB_SYSTEM &&
+ #endif
+@@ -2636,6 +2637,8 @@ static int test_presets_knob(void)
                  sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
              } else if (g == GR_TOOLS) {
                  tools_ok &= same_snd && same_steps && !ui.confirm;
@@ -2517,7 +4232,26 @@ index 281ec8c..9678a69 100644
              } else {
                  snd_ok &= !same_snd && same_steps && ui.page == i && !ui.home;
                  hold(B_SAVE);
-@@ -2678,7 +2681,7 @@ static int test_page_cycles(void)
+@@ -2684,7 +2687,7 @@ static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const ste
+ static uint32_t auto_cur(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
+ static int test_page_cycles(void)
+ {
+-    static const char *const SAVE_CYC[6] = {"USER", "PRESETS", "PHRASES", "PROJECT", "TOOLS", "USER"};   /* (1.5, #173) */
++    static const char *const SAVE_CYC[7] = {"USER", "PRESETS", "PHRASES", "PROJECT", "CHORDS", "TOOLS", "USER"};   /* (1.5, #173; 1.6.1_sequences: CHORDS) */
+     int bad = 0, ok = 1;
+     uint32_t i, n0;
+     step_t ref[NSTEP], want;
+@@ -2692,15 +2695,15 @@ static int test_page_cycles(void)
+     uint16_t rw[EV_ROWS];
+     /* the cycles: each button's taps, in order */
+     ui_power_on();
+-    for (i = 0; i < 6u; i++) {
++    for (i = 0; i < 7u; i++) {
+         press(B_SAVE); frames(320);
+         ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, SAVE_CYC[i]);
+     }
+-    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > TOOLS > USER", ok);
++    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > CHORDS > TOOLS > USER", ok);
      ok = 1;
      for (i = 0; i < NPAGES; i++) {                       /* every page in a family its button reaches, and its LED */
          uint32_t f = PAGES[i].fam;
@@ -2526,7 +4260,7 @@ index 281ec8c..9678a69 100644
          ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG;   /* (1.2: GLO's only page) */
          ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK || str_eq(PAGES[i].title, "CLOCK");   /* HOME's: MIXER CLOCK */
          ok &= PAGES[i].graph != GR_TRK || f == FAM_TRK;
-@@ -2688,7 +2691,7 @@ static int test_page_cycles(void)
+@@ -2710,7 +2713,7 @@ static int test_page_cycles(void)
      }
      for (i = 0; i < NPAGES; i++)
          ok &= !str_eq(PAGES[i].title, "PATTERN") && !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
@@ -2535,7 +4269,7 @@ index 281ec8c..9678a69 100644
                   "(their LED HOME)", ok);
      {   /* 1.2: GLOBAL and SYSTEM are gone; their knobs: BPM SWG CLK on HOME > CLOCK, TUNE and ROUT on no page (the MENU's),
           * MIDI SYNC CPU on none (INFO shows the USB state and the CPU) */
-@@ -6791,15 +6794,19 @@ static int test_seq_tools(void)
+@@ -6813,15 +6816,19 @@ static int test_seq_tools(void)
      press(B_SEQ); frames(320);
      ok &= cur_page()->graph == GR_EVENTS && str_eq(cur_page()->title, "AUTOMATION");
      press(B_SEQ); frames(320);
@@ -2557,7 +4291,7 @@ index 281ec8c..9678a69 100644
      go_home(); frame();
      for (k = 0; k < NPAGES; k++)                        /* a remembered page that is no SEQ page any more: STEP */
          if (PAGES[k].graph == GR_SONG) ui.fam_last[FAM_SEQ] = (uint8_t)k;
-@@ -7149,7 +7156,7 @@ static int test_layer_lock(void)
+@@ -7171,7 +7178,7 @@ static int test_layer_lock(void)
      btn_down(B_SEQ); frames(500);
      ok &= ui.layer == LAYER_SEQ && !ui.lock;
      btn_up(B_SEQ); frame();
@@ -2566,7 +4300,7 @@ index 281ec8c..9678a69 100644
      press(B_GLO); frames(400);
      ok &= str_eq(cur_page()->title, "SONG") && !ui.lock;
      press(B_GLO);
-@@ -9267,6 +9274,103 @@ static int help_fits(const char *s)
+@@ -9289,6 +9296,165 @@ static int help_fits(const char *s)
      if (!ok || w > 224) printf("  help: \"%s\" %u hints, %d px of 224\n", s, n, w);
      return ok && w <= 224;
  }
@@ -2638,6 +4372,68 @@ index 281ec8c..9678a69 100644
 +    ok &= CH_SEQ(chain_config.row[0].slot[0]) == 0u;
 +    chain_defaults(&chain_config);
 +    bad += check("1.6 SONG: PRESETS turns the cell's sequence (0 = as saved .. 8), KNOB 3 resets it, a silent cell has none", ok);
++    /* ARP > GEN: KNOB 1..3 turn DENS, CHORD, EVOLVE of the selected track, KNOB 4 its scale; the arp's MODE stays */
++    ui_power_on();
++    gen_defaults();
++    go_title("GEN"); frame();
++    {
++        uint32_t sel = song.sel;
++        int16_t mode = TSEL->p[P_AMODE];
++        ok = cur_page()->graph == GR_GENS && cur_page()->fam == FAM_ARP;
++        turn(EN_K1, 10); frames(4);
++        ok &= gen_set[sel][GS_DENS] == 74;
++        turn(EN_K1, -200); frames(4);
++        ok &= gen_set[sel][GS_DENS] == 0;
++        turn(EN_K1, 500); frames(4);
++        ok &= gen_set[sel][GS_DENS] == 127;
++        turn(EN_K2, 33); frames(4);
++        ok &= gen_set[sel][GS_CHORD] == 33;
++        turn(EN_K3, -4); frames(4);
++        ok &= gen_set[sel][GS_EVOLVE] == 20;
++        TSEL->p[P_SCALE] = 0;
++        turn(EN_K4, 2); frames(4);
++        ok &= TSEL->p[P_SCALE] == 2 && TSEL->p[P_AMODE] == mode;
++        turn(EN_K4, 99); frames(4);
++        ok &= TSEL->p[P_SCALE] == 15;
++        gen_defaults(); TSEL->p[P_SCALE] = 0;
++        bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE (0..127) and SCL of the selected track", ok);
++    }
++
++    /* SAVE > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
++    ui_power_on();
++    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
++    go_title("CHORDS"); frame();
++    ok = cur_page()->graph == GR_CPK && cur_page()->fam == FAM_SAVE;
++    turn(EN_K1, 1); frames(4);
++    ok &= cpk_sel == 1 && !memcmp(&cpk, &CPK_F[1].p, sizeof cpk);                   /* JAZZ: loaded */
++    turn(EN_K2, 3); frames(4);
++    ok &= cpk_key == 3;
++    turn(EN_K2, 99); frames(4);
++    ok &= cpk_key == CPK_KEYS - 1u;
++    turn(EN_K2, -99); frames(4); turn(EN_K2, 2); frames(4);
++    turn(EN_K3, 3); frames(4);
++    ok &= cpk_key == 2 && cpk.act[2] == CPK_F[1].p.act[2] + 3u;
++    turn(EN_K3, 99); frames(4);
++    ok &= cpk.act[2] == CA_N - 1u;
++    turn(EN_K3, -99); frames(4);
++    ok &= cpk.act[2] == CA_NONE;
++    turn(EN_K4, 5); frames(4);
++    ok &= cpk.strum == CPK_F[1].p.strum + 5u;
++    turn(EN_K4, 500); frames(4);
++    ok &= cpk.strum == CPK_STRUM_MAX;
++    press(B_OCTUP); frames(10);                                                     /* a built in pack: not written over */
++    ok &= !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk) && cpk_sel == 1;
++    turn(EN_K1, CPK_NF - 1u); frames(4);                                              /* the first user pack */
++    ok &= cpk_sel == CPK_NF && !memcmp(&cpk, &cpk_user[0], sizeof cpk);
++    turn(EN_K3, 5); frames(4);                                                       /* its key 3: changed, then saved by OCT+ */
++    cpk.strum = 21; cpk.act[cpk_key] = CA_AUG;
++    press(B_OCTUP); frames(10);
++    ok &= !memcmp(&cpk_user[0], &cpk, sizeof cpk) && cpk_user[0].strum == 21 && cpk_user[0].act[cpk_key] == CA_AUG;
++    turn(EN_K1, -3); frames(4); turn(EN_K1, 3); frames(4);                              /* away and back: the saved one */
++    ok &= cpk.strum == 21 && cpk.act[cpk_key] == CA_AUG;
++    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
++    bad += check("1.6.1 SAVE > CHORDS: the knobs pick the pack, the black key, its action and the strum speed; OCT+ saves a user pack", ok);
++
 +    /* the footer says what PRESETS does on both pages (preset_hint: ui_draw.c) */
 +    {
 +        char h[16]; uint32_t on;
@@ -2670,7 +4466,7 @@ index 281ec8c..9678a69 100644
  static int test_help(void)
  {
      int bad = 0, ok;
-@@ -9895,6 +9999,7 @@ int main(void)
+@@ -9917,6 +10083,7 @@ int main(void)
      bad += test_home_tracks();
      bad += test_fx_map_columns();
      bad += test_help();
@@ -2679,20 +4475,20 @@ index 281ec8c..9678a69 100644
  #if FELUCCA_FM4
      bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 diff --git a/tools/build.py b/tools/build.py
-index a92334d..204c85f 100755
+index 905b40c..6d8c6ad 100755
 --- a/tools/build.py
 +++ b/tools/build.py
-@@ -189,7 +189,7 @@ def ld_regions():
+@@ -193,7 +193,7 @@ def ld_regions():
  def build_app():
      flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
      for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
 -                 "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4",
 +                 "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_PATBANK", "FELUCCA_FM4",
-                  "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST"):
+                  "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2"):
          v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
          if v in ("0", "1"):
 diff --git a/web/emu/felucca_web.c b/web/emu/felucca_web.c
-index cc77a42..f26d72d 100644
+index 92c7ae6..1aa86a3 100644
 --- a/web/emu/felucca_web.c
 +++ b/web/emu/felucca_web.c
 @@ -205,6 +205,7 @@ static void fl_plain_window_init(void) {}
@@ -2702,7 +4498,7 @@ index cc77a42..f26d72d 100644
 +#include "../../firmware/src/patbank_store.c"
  
  /* ------------------------------------------------- main.c and its HAL --- */
- typedef struct { uint32_t magic, count, vec, pc, emu, dbg, rets; } fm1_crash_t;
+ #if FELUCCA_CPU2
 -- 
 2.43.0
 

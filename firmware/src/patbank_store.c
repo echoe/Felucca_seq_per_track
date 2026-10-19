@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The sequence banks in flash (patbank.c): store s (0..3 the projects A..D, PB_LIVE the music as it is now), six objects
- * OBJ_PB0 + 6 s + o, each an A/B pair of storage.c. Payload: 8 bytes {'P', 'B', 1, o, 0 x 4}, then
+ * OBJ_PB0 + 6 s + o, each an A/B pair of storage.c. Payload: 8 bytes {'P', 'B', 1, o, 0 x 4}, then (objects 0..2 are version 2 since
+ * the ARP's GEN: their last four bytes are GEN's DENS, CHORD, EVOLVE of the four tracks; the meta object: the chained masks there)
  *   o < 5   six sequences (576 bytes each), 3464 bytes
  *   o = 5   the last two sequences, the sequence each track plays (4), the 32 LENs, per sequence its automation record
  *           count and ON (2 bytes), then the records of the sequences with some (3 bytes each, in order); the playing
  *           sequence's are in the project record, not here. At most PB_META_RECS of them: more is refused (pb_meta_ok) */
 #if FELUCCA_PATBANK && FELUCCA_FLASH
 #define PB_META_FIX (PB_HDR + 2u * PB_PAT_B + NTRK + PB_NSEQ + 2u * PB_NSEQ)
-#define PB_META_RECS ((PB_OBJ_MAX - PB_META_FIX) / 3u)
+#define PB_CPK_B ((1u + CPK_USER) * (uint32_t)sizeof(cpack_t))   /* the chord packs (chord.c), version 3, after the records */
+#define PB_META_RECS ((PB_OBJ_MAX - PB_META_FIX - PB_CPK_B) / 3u)
 /* The object's RAM is the project staging RAM (project.c proj_wire_u): a save, a load and the autosave already take turns with
  * it, and a backup noticing proj_wire_gen knows it was reused. It is not kept a 3.8 KB buffer of its own: the pool is full */
 #define pb_wire (proj_wire_u.raw)
@@ -33,8 +35,13 @@ static uint32_t pb_build(uint32_t o)
     uint32_t n = pb_obj_pats(o), pos = PB_HDR, q;
     memset(pb_wire, 0, PB_HDR);
     pb_wire[0] = 'P'; pb_wire[1] = 'B'; pb_wire[2] = 1; pb_wire[3] = (uint8_t)o;
-    if (o == PB_META_O) {                               /* CHAIN: per track the mask of the chained sequences (version 2) */
+    if (o < GS_N) {                                     /* GEN (version 2): the objects 0..2 carry DENS, CHORD, EVOLVE */
         pb_wire[2] = 2;
+        for (q = 0; q < NTRK; q++)
+            pb_wire[4u + q] = gen_set[q][o];
+    }
+    if (o == PB_META_O) {                               /* CHAIN: per track the mask of the chained sequences (version 2); 3: the chord packs */
+        pb_wire[2] = 3;
         for (q = 0; q < NTRK; q++)
             pb_wire[4u + q] = pb_cmask[q];
     }
@@ -53,6 +60,11 @@ static uint32_t pb_build(uint32_t o)
                 memcpy(pb_wire + pos, pb_mo[q].ev, pb_mo[q].count * sizeof(motion_event_t));
                 pos += pb_mo[q].count * (uint32_t)sizeof(motion_event_t);
             }
+        memcpy(pb_wire + pos, &cpk, sizeof cpk); pos += (uint32_t)sizeof cpk;           /* the chord packs: what the black keys do, the user's */
+        for (q = 0; q < CPK_USER; q++) {
+            memcpy(pb_wire + pos, &cpk_user[q], sizeof(cpack_t));
+            pos += (uint32_t)sizeof(cpack_t);
+        }
     }
     return pos;
 }
@@ -83,7 +95,7 @@ static int pb_store_load(uint32_t s)
     uint8_t cur[NTRK], len[PB_NSEQ], cnt[PB_NSEQ], on[PB_NSEQ];
     pb_reset_to_live();
     n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
         return 0;
     pos = PB_HDR + 2u * PB_PAT_B;
     memcpy(cur, pb_wire + pos, NTRK); pos += NTRK;
@@ -105,7 +117,7 @@ static int pb_store_load(uint32_t s)
     }
     memcpy(pb_pat[PB_META_O * PB_PER], pb_wire + PB_HDR, 2u * PB_PAT_B);
     for (t = 0; t < NTRK; t++)                          /* CHAIN: version 2 has the masks (version 1: a start and a length: none) */
-        pb_cmask[t] = pb_wire[2] == 2 ? pb_wire[4u + t] : 0u;
+        pb_cmask[t] = pb_wire[2] >= 2 ? pb_wire[4u + t] : 0u;
     for (q = 0; q < PB_NSEQ; q++) {
         uint32_t k;
         pb_mo[q].count = 0;
@@ -116,13 +128,29 @@ static int pb_store_load(uint32_t s)
             memcpy(&pb_mo[q].ev[k], pb_wire + pos, sizeof(motion_event_t));
         pb_mo[q].count = cnt[q];
     }
+    if (pb_wire[2] == 3 && pos + PB_CPK_B <= n) {       /* the chord packs (version 3; an earlier one: the built in ones pb_reset_to_live set) */
+        cpack_t pk[1u + CPK_USER];
+        uint32_t ok = 1;
+        memcpy(pk, pb_wire + pos, sizeof pk);
+        for (q = 0; q < 1u + CPK_USER; q++)
+            ok &= (uint32_t)cpk_valid(&pk[q]);
+        if (ok) {
+            cpk = pk[0];
+            for (q = 0; q < CPK_USER; q++)
+                cpk_user[q] = pk[1u + q];
+        }
+    }
     for (q = 0; q < PB_NSEQ; q++)
         pb_len[q] = len[q] >= (uint32_t)TP[P_SLEN].min && len[q] <= (uint32_t)TP[P_SLEN].max ? len[q] : (uint8_t)TP[P_SLEN].def;
     for (o = 0; o < PB_META_O; o++) {
         n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + o, pb_wire, sizeof pb_wire);
-        if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' && pb_wire[2] == 1 &&
-            pb_wire[3] == o)
+        if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' &&
+            (pb_wire[2] == 1 || pb_wire[2] == 2) && pb_wire[3] == o) {
             memcpy(pb_pat[o * PB_PER], pb_wire + PB_HDR, PB_PER * PB_PAT_B);
+            if (o < GS_N && pb_wire[2] == 2)             /* GEN's knobs (1: stored before it: the defaults pb_reset_to_live set) */
+                for (t = 0; t < NTRK; t++)
+                    gen_set[t][o] = pb_wire[4u + t] < 128u ? pb_wire[4u + t] : gen_set[t][o];
+        }
     }
     for (t = 0; t < NTRK; t++) {            /* the sequence a track plays is the loaded music's (the record) */
         pb_cur[t] = cur[t];
@@ -143,7 +171,7 @@ static int pb_store_saved(uint32_t s, uint8_t *cur)
     uint32_t n, t;
     memset(cur, 0, NTRK);
     n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
         return 0;
     for (t = 0; t < NTRK; t++)
         cur[t] = pb_wire[PB_HDR + 2u * PB_PAT_B + t] < PB_N ? pb_wire[PB_HDR + 2u * PB_PAT_B + t] : 0u;
@@ -161,7 +189,7 @@ static int pb_store_fetch(uint32_t s, uint32_t k, uint32_t q, step_t *st, uint8_
     *len = (uint8_t)TP[P_SLEN].def;
     memset(mo, 0, sizeof *mo);
     n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + PB_META_O, pb_wire, sizeof pb_wire);
-    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] != 1 && pb_wire[2] != 2) || pb_wire[3] != PB_META_O)
+    if ((int)n < 0 || n < PB_META_FIX || pb_wire[0] != 'P' || pb_wire[1] != 'B' || (pb_wire[2] < 1 || pb_wire[2] > 3) || pb_wire[3] != PB_META_O)
         return 1;
     (void)cur;
     pos = PB_HDR + 2u * PB_PAT_B + NTRK;
@@ -184,8 +212,8 @@ static int pb_store_fetch(uint32_t s, uint32_t k, uint32_t q, step_t *st, uint8_
     }
     o = qi / PB_PER;
     n = (uint32_t)st_load(OBJ_PB0 + s * PB_NOBJ + o, pb_wire, sizeof pb_wire);
-    if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' && pb_wire[2] == 1 &&
-        pb_wire[3] == o)
+    if ((int)n == (int)(PB_HDR + PB_PER * PB_PAT_B) && pb_wire[0] == 'P' && pb_wire[1] == 'B' &&
+        (pb_wire[2] == 1 || pb_wire[2] == 2) && pb_wire[3] == o)
         (void)pb_unpack_pat(st, pb_wire + PB_HDR + (qi % PB_PER) * PB_PAT_B);
     return 0;
 }

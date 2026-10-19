@@ -1140,6 +1140,7 @@ static int project_restore_runtime(const project_t *input)
         pat_sig[k] = ~steps_sig(t);                     /* a project's steps are the user's */
     }
     undo_depth--;
+    memset(gen, 0, sizeof gen);                         /* (1.6_sequences: GEN makes its pattern anew) */
 #if FELUCCA_PATBANK
     pb_reset_to_live();                                 /* (the sequences: the loaded music is sequence 1; a store fills the rest) */
 #endif

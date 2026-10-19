@@ -83,6 +83,8 @@ static void reset(void)
     erase_error = 0;
     fail_after = -1;
     ui_prefs2 = 0;
+    ui_prefs3 = 0;
+    cpk_defaults();
     pb_ready = 0;
     pb_dirty = 0;
     pb_clear_all();
@@ -260,14 +262,14 @@ int main(void)
 
     {   /* MENU > CONTROL > SEQ SWITCH: NOW at once; END, while playing, at the end of the sequence playing */
         reset();
-        ok = !(ui_prefs2 & (PREF_SEQ_END >> 16)) && menu_n(MI_SEQSW) == 2u && !strcmp(MI_NAME[MI_SEQSW], "SEQ SWITCH") &&
+        ok = !(ui_prefs3 & (PREF_SEQ_END >> 24)) && menu_n(MI_SEQSW) == 2u && !strcmp(MI_NAME[MI_SEQSW], "SEQ SWITCH") &&
              !strcmp(menu_vname(MI_SEQSW, 0), "NOW") && !strcmp(menu_vname(MI_SEQSW, 1), "END") && MI_TAB[MI_SEQSW] == MTAB_SYSTEM;
         song.playing = 1;
         trk[0].p[P_SLEN] = 16; trk[0].seq_idx = 3;
         (void)pb_request(0, 2);
         ok &= pb_cur[0] == 2 && !pb_next[0];                       /* NOW (the default): at once, playing or not */
         menu_put(MI_SEQSW, 1);
-        ok &= menu_get(MI_SEQSW) == 1 && (ui_prefs2 & (PREF_SEQ_END >> 16));
+        ok &= menu_get(MI_SEQSW) == 1 && (ui_prefs3 & (PREF_SEQ_END >> 24));
         (void)pb_request(0, 5);
         for (t = 0; t < NTRK; t++) (void)pb_due(t);
         ok &= pb_cur[0] == 2 && pb_next[0] == 6;                   /* END, playing: waits (step 4 of 16) */
@@ -422,6 +424,60 @@ int main(void)
         ok = chain_prepare() == 0 && chain.src[0][0] == 8 && chain_alt[0].step[0].n == 0 && chain_alt[0].timing[0] == TP[P_SLEN].def;
         chain.armed = 0; transport_req = 0;
         bad += check("SONG: a lost store: the chosen sequence is empty, the song plays", ok);
+    }
+
+    {   /* the ARP's GEN knobs (DENS, CHORD, EVOLVE of the four tracks) are saved with the sequence banks */
+        reset();
+        ok = gen_set[0][GS_DENS] == 64 && gen_set[0][GS_CHORD] == 0 && gen_set[0][GS_EVOLVE] == 24;
+        gen_set[0][GS_DENS] = 100; gen_set[0][GS_CHORD] = 70; gen_set[0][GS_EVOLVE] = 5;
+        gen_set[3][GS_DENS] = 12; gen_set[3][GS_CHORD] = 127; gen_set[3][GS_EVOLVE] = 99;
+        pb_dirty |= 7u; pb_gen++;
+        ok &= project_save_as(0, "GEN") == 0;
+        gen_defaults();
+        memset(proj_slot, 0, sizeof proj_slot);
+        ok &= gen_set[0][GS_DENS] == 64;
+        project_load(0);
+        ok &= gen_set[0][GS_DENS] == 100 && gen_set[0][GS_CHORD] == 70 && gen_set[0][GS_EVOLVE] == 5 &&
+              gen_set[3][GS_DENS] == 12 && gen_set[3][GS_CHORD] == 127 && gen_set[3][GS_EVOLVE] == 99 && gen_set[1][GS_DENS] == 64;
+        gen_set[1][GS_EVOLVE] = 50; pb_dirty |= 7u; pb_gen++;      /* the autosave (the live store) */
+        as_run(120000u);
+        power_cycle();
+        ok &= gen_set[1][GS_EVOLVE] == 50 && gen_set[0][GS_DENS] == 100 && gen_set[3][GS_CHORD] == 127;
+        /* a project saved with the defaults loads them back over another's values */
+        gen_defaults(); pb_dirty |= 7u; pb_gen++;
+        ok &= project_save_as(2, "DEF") == 0;
+        gen_set[0][GS_DENS] = 1; gen_set[3][GS_CHORD] = 99;
+        memset(proj_slot, 0, sizeof proj_slot);
+        project_load(2);
+        ok &= gen_set[0][GS_DENS] == 64 && gen_set[3][GS_CHORD] == 0 && gen_set[1][GS_EVOLVE] == 24;
+        bad += check("GEN's DENS, CHORD, EVOLVE: kept by project SAVE / LOAD and the autosave; a project without them: the defaults", ok);
+    }
+
+    {   /* CHRD PLAY's chord packs (what the black keys do, the user's packs) are saved with the music */
+        reset();
+        ok = !memcmp(&cpk, &CPK_F[0].p, sizeof cpk) && !memcmp(&cpk_user[3], &CPK_F[0].p, sizeof cpk);
+        cpk.act[0] = CA_SUS2; cpk.act[5] = CA_A13; cpk.act[10] = CA_ARP; cpk.strum = 17;
+        cpk_user[1].act[3] = CA_DIM7; cpk_user[1].strum = 3;
+        cpk_touch();
+        ok &= project_save_as(0, "CPK") == 0;
+        cpk_defaults();
+        memset(proj_slot, 0, sizeof proj_slot);
+        ok &= cpk.act[0] == CA_MIN;
+        project_load(0);
+        ok &= cpk.act[0] == CA_SUS2 && cpk.act[5] == CA_A13 && cpk.act[10] == CA_ARP && cpk.strum == 17 &&
+              cpk_user[1].act[3] == CA_DIM7 && cpk_user[1].strum == 3 && !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk);
+        cpk_user[2].act[1] = CA_MAJ9; cpk_touch();                  /* the autosave (the live store) */
+        as_run(120000u);
+        power_cycle();
+        ok &= cpk_user[2].act[1] == CA_MAJ9 && cpk.act[5] == CA_A13 && cpk_user[1].strum == 3;
+        /* a project saved with another pack: its own on loading */
+        cpk_defaults(); cpk.strum = 5; cpk_touch();
+        ok &= project_save_as(2, "OTHER") == 0;
+        cpk.strum = 33; cpk.act[2] = CA_AUG;
+        memset(proj_slot, 0, sizeof proj_slot);
+        project_load(2);
+        ok &= cpk.strum == 5 && cpk.act[2] == CA_7;
+        bad += check("the chord packs (what each black key does, the user's four) are kept by project SAVE / LOAD and the autosave", ok);
     }
 
     printf(bad ? "patbank test FAILED\n" : "patbank test passed\n");

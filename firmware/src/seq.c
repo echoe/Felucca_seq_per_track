@@ -229,7 +229,10 @@ static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) &
  * C E C G (the bottom one); WALK a random step up or down the list (bouncing off its ends); CHORD all the held
  * notes together (the first 4), an octave higher each step through OCT */
 enum { AM_OFF, AM_UP, AM_DN, AM_UPDN, AM_RND, AM_ORD, AM_REPEAT, AM_DNUP, AM_UP8, AM_CONV, AM_DIVG, AM_PINKY,
-       AM_THUMB, AM_WALK, AM_CHORD };
+       AM_THUMB, AM_WALK, AM_CHORD, AM_GEN };
+/* 1.6_sequences: GEN plays by itself while the music plays, notes of the track's scale (ROOT, SCALE, TRN, over OCT octaves), and
+ * the keys play as they do with the arp OFF. The notes the arp's keys feed (every mode but OFF and GEN) */
+static int arp_keys(const track_t *t) { return t->p[P_AMODE] && t->p[P_AMODE] != AM_GEN; }
 
 static void arp_forget(track_t *t)               /* (its notes ended otherwise: trk_all_off) */
 {
@@ -285,6 +288,149 @@ static void arp_off(track_t *t)                  /* the sounding arp note(s) end
     if (rec_on(t))
         rec_release(t, t->arp_note);
     t->arp_note = 0;
+}
+
+
+/* ----------------------------------------------------------------- GEN --- */
+/* 1.6_sequences: the ARP's GEN mode, generative music that evolves. A loop of LEN (at most GEN_N) arp steps (RATE, SWG, GATE and
+ * PROB as the arp's) whose steps each hold, fixed by chance when the track's pattern is made: a place in the scale (DEG, a
+ * random walk over OCT octaves of the track's scale), two thresholds (THR for DENSITY: the step plays when it is below DENS;
+ * CTHR for CHORD) and a voicing / loudness (AUX). Turning DENS or CHORD therefore adds or takes away notes and chords of the
+ * same pattern, and ROOT, SCALE, TRN and OCT re-pitch it as they are turned. EVOLVE: when a loop ends, each step changes with
+ * the chance EVOLVE / 128, mostly a move of a step or two in the scale, now and then a new threshold. CHORD c: a step is a
+ * chord when its CTHR is below 2 c (all of them from 64), the chord richer as c grows: a fifth or a third (1..31), triads
+ * with their suspensions (32..63), sevenths (64..95), 9ths and quartal stacks (96..127), up to four notes (arp_ch).
+ * The pattern is made when GEN starts and when the project is loaded; it keeps through STOP and PLAY. Main loop / audio ISR
+ * as the arp's (arp_fire: once a step, not inlined). */
+#define GEN_N 32u
+typedef struct { uint8_t deg[GEN_N], thr[GEN_N], cthr[GEN_N], aux[GEN_N], ready, last; uint32_t rnd; } gen_t;
+static gen_t gen[NTRK];
+/* the knobs of GEN per track (the GEN page; saved with the sequence banks, patbank_store.c): not track parameters, so no
+ * project format, user preset or protocol changes */
+enum { GS_DENS, GS_CHORD, GS_EVOLVE, GS_N };
+static uint8_t gen_set[NTRK][GS_N] = {{64, 0, 24}, {64, 0, 24}, {64, 0, 24}, {64, 0, 24}};
+static void gen_defaults(void)
+{
+    uint32_t t;
+    for (t = 0; t < NTRK; t++) {
+        gen_set[t][GS_DENS] = 64; gen_set[t][GS_CHORD] = 0; gen_set[t][GS_EVOLVE] = 24;
+    }
+}
+
+static uint32_t gen_rand(gen_t *g)               /* xorshift32: its own, so the pattern is its own */
+{
+    uint32_t x = g->rnd;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g->rnd = x ? x : 0x9E3779B9u;
+    return g->rnd >> 8;
+}
+/* the notes of the track's scale: intervals (semitones above the root) of the 12-bit mask, how many */
+static uint32_t gen_scale(const track_t *t, uint8_t *iv)
+{
+    uint32_t mask = scale_mask(t), i, n = 0;
+    for (i = 0; i < 12u; i++)
+        if ((mask >> i) & 1u)
+            iv[n++] = (uint8_t)i;
+    if (!n)
+        iv[n++] = 0;
+    return n;
+}
+static uint32_t gen_range(uint32_t n, const track_t *t) { return n * (uint32_t)(t->p[P_AOCT] > 0 ? t->p[P_AOCT] : 1); }
+/* degree d of the scale (from the root a C3 up, ROOT, TRN) as a note */
+static uint32_t gen_note(const track_t *t, const uint8_t *iv, uint32_t n, uint32_t d)
+{
+    return (uint32_t)clamp(48 + (int32_t)t->p[P_ROOT] + 12 * (int32_t)(d / n) + iv[d % n] + t->p[P_TRANS], 0, 127);
+}
+static void gen_fill(const track_t *t, gen_t *g)
+{
+    uint8_t iv[12];
+    uint32_t i, n = gen_scale(t, iv), r = gen_range(n, t), d = r / 2u;
+    g->rnd = ((uint32_t)rng() << 16 ^ (uint32_t)rng() ^ (uint32_t)trk_index(t) * 0x01000193u) | 1u;
+    for (i = 0; i < GEN_N; i++) {
+        int32_t m = (int32_t)(gen_rand(g) % 5u) - 2;     /* a walk: mostly near the last note, drawn back to the middle */
+        if ((d > r * 3u / 4u && m > 0) || (d < r / 4u && m < 0))
+            m = -m;
+        d = (uint32_t)clamp((int32_t)d + m, 0, (int32_t)r - 1);
+        g->deg[i] = (uint8_t)d;
+        g->thr[i] = (uint8_t)(gen_rand(g) & 127u);
+        g->cthr[i] = (uint8_t)(gen_rand(g) & 127u);
+        g->aux[i] = (uint8_t)(gen_rand(g) & 255u);
+    }
+    g->last = (uint8_t)d;
+    g->ready = 1;
+}
+/* a loop ended: each of the first len steps changes with the chance EVOLVE / 128 */
+static __attribute__((noinline)) void gen_evolve(const track_t *t, gen_t *g, uint32_t len)
+{
+    uint8_t iv[12];
+    uint32_t i, n = gen_scale(t, iv), r = gen_range(n, t), f = (uint32_t)gen_set[trk_index(t)][GS_EVOLVE], x;
+    for (i = 0; i < len; i++) {
+        if ((gen_rand(g) & 127u) >= f)
+            continue;
+        x = gen_rand(g) & 127u;
+        if (x < 90u) {                                   /* the note moves a step or two in the scale */
+            int32_t m = (int32_t)(x % 4u) - 2;
+            m += m >= 0;
+            g->deg[i] = (uint8_t)clamp((int32_t)g->deg[i] + m, 0, (int32_t)r - 1);
+        } else if (x < 106u)
+            g->thr[i] = (uint8_t)(gen_rand(g) & 127u);   /* it comes or goes with DENS */
+        else if (x < 118u)
+            g->cthr[i] = (uint8_t)(gen_rand(g) & 127u);  /* it turns into a chord, or not */
+        else
+            g->aux[i] = (uint8_t)(gen_rand(g) & 255u);   /* another voicing and loudness */
+    }
+}
+/* the chord on step i: the offsets in scale degrees above its note (max 3), how many; 0 none */
+static uint32_t gen_chord(const gen_t *g, uint32_t i, uint32_t c, uint8_t *off)
+{
+    static const uint8_t SH[4][4][3] = {
+        {{4, 0, 0}, {2, 0, 0}, {4, 0, 0}, {2, 0, 0}},          /* 1..31: a fifth, a third */
+        {{2, 4, 0}, {2, 4, 0}, {1, 4, 0}, {3, 4, 0}},          /* 32..63: triads, sus2, sus4 */
+        {{2, 4, 6}, {2, 4, 6}, {1, 4, 6}, {3, 4, 6}},          /* 64..95: sevenths, sus */
+        {{2, 6, 8}, {4, 6, 8}, {3, 6, 9}, {2, 4, 8}}};         /* 96..127: 3-7-9, 5-7-9, quartal, add9 */
+    uint32_t lvl = c / 32u, v = g->aux[i] & 3u, k, n = 0;
+    if (!c || g->cthr[i] >= (c * 2u > 127u ? 127u : c * 2u))
+        return 0;
+    for (k = 0; k < 3u && SH[lvl][v][k]; k++)
+        off[n++] = SH[lvl][v][k];
+    return n;
+}
+/* an arp step of GEN (period: its length, as arp_fire's) */
+static __attribute__((noinline)) void gen_fire(track_t *t, uint32_t period)
+{
+    uint8_t iv[12], off[3];
+    gen_t *g = &gen[trk_index(t)];
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, (int32_t)GEN_N), i, n, r, d, k, nt, vel, nc;
+    t->arp_idx++;
+    if (t->arp_note)
+        arp_off(t);
+    if (!g->ready)
+        gen_fill(t, g);
+    i = t->arp_idx % len;
+    if (!i && t->arp_idx)
+        gen_evolve(t, g, len);                           /* (a loop ended) */
+    if (g->thr[i] >= gen_set[trk_index(t)][GS_DENS] || (uint32_t)(rng() & 127u) > (uint32_t)t->p[P_APROB])
+        return;                                          /* a rest */
+    n = gen_scale(t, iv);
+    r = gen_range(n, t);
+    d = g->deg[i] < r ? g->deg[i] : r - 1u;
+    vel = 64u + (g->aux[i] >> 2);
+    t->arp_off = period * (uint32_t)t->p[P_AGATE] / 128u;
+    nc = gen_chord(g, i, (uint32_t)gen_set[trk_index(t)][GS_CHORD], off);
+    for (k = 0; k <= nc; k++) {
+        nt = gen_note(t, iv, n, d + (k ? off[k - 1u] : 0u));
+        if (k && nt == (uint32_t)t->arp_note)
+            continue;
+        if (!t->arp_note)
+            t->arp_note = (uint8_t)nt;
+        else
+            t->arp_ch[k - 1u] = (uint8_t)nt;
+        if (rec_on(t))
+            rec_note(t, nt, vel);
+        trk_note_on(t, nt, vel);
+    }
 }
 
 /* the place in the note list (len notes) the step arp_idx plays (not inlined, as arp_chord); UP+8 adds its note */
@@ -402,6 +548,10 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
 static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
 {
     uint32_t cnt, list[64], len, j;
+    if (t->p[P_AMODE] == AM_GEN) {                  /* 1.6_sequences: generative, no held notes */
+        gen_fire(t, period);
+        return;
+    }
     if (!(len = arp_list(t, list, &cnt))) {        /* (every key silent now: QNT WHITE's black keys) */
         if (t->arp_note)
             arp_off(t);
@@ -434,7 +584,16 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
         else
             t->arp_off -= gate_n;
     }
-    if (!t->p[P_AMODE] || !t->nheld) {
+    if (t->p[P_AMODE] == AM_GEN) {                  /* 1.6_sequences: while the music plays; stopped, it waits for PLAY at its first step */
+        if (!song.playing) {
+            if (t->arp_note)
+                arp_off(t);
+            t->arp_pos = 0xFFFFFFF;
+            t->arp_idx = 0xFFFFFFFFu;
+            return;
+        }
+    } else if (!t->p[P_AMODE] || !t->nheld) {
+        gen[trk_index(t)].ready = 0;                 /* (GEN left: it starts over, another pattern) */
         if (!t->nheld && t->arp_note)
             arp_off(t);
         return;
@@ -605,7 +764,7 @@ static void rec_release(track_t *t, uint32_t note)
 static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t i = trk_index(t), k;
-    if (cin_left != 1u || cin_pos < click_beat_len() / 2u || !((song.rec >> i) & 1u) || t->p[P_AMODE])
+    if (cin_left != 1u || cin_pos < click_beat_len() / 2u || !((song.rec >> i) & 1u) || arp_keys(t))
         return;
     for (k = 0; k < cin_n[i] && cin_note[i][k] != note; k++)
         ;
@@ -624,9 +783,9 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
     last_note = (uint8_t)note;
     if (cin_left)
         cin_keep(t, note, vel);
-    if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
+    if (rec_on(t) && !arp_keys(t))                 /* (ARP on: arp_tick records its notes) */
         rec_note(t, note, vel);
-    if (t->p[P_AMODE])
+    if (arp_keys(t))
         arp_add(t, note);
     else
         trk_note_on(t, note, vel);
@@ -709,10 +868,18 @@ static __attribute__((noinline)) void perf_key_remap(void)
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
 static void key_on(uint32_t k, track_t *t)
 {
-    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel;
+    uint32_t n, i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel, md = 0, np;
+    if (play_on(t)) {                               /* CHRD PLAY: the black keys held shape it; STRUM / ARP play it a note at a time */
+        n = play_build(t, k, kb_note[k], vel);
+        md = n >> 8;
+        n &= 255u;
+    } else
+        n = chord_build(t, kb_note[k], kb_chord[k]);
+    np = md == 2u ? 0u : md == 1u ? 1u : n;         /* the notes that sound now */
     kb_chn[k] = 0;
+    pk_mode[k] = 0;
     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < np; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
             continue;
@@ -720,7 +887,14 @@ static void key_on(uint32_t k, track_t *t)
         midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);
     }
     in_key = 0;
-    kb_chn[k] = (uint8_t)n;
+    kb_chn[k] = (uint8_t)np;
+    if (md) {                                       /* the rest of the chord: play_tick */
+        pk_mode[k] = (uint8_t)md;
+        pk_n[k] = (uint8_t)n;
+        pk_i[k] = (uint8_t)np;
+        pk_cur[k] = 0;
+        pk_wait[k] = md == 1u ? play_strum_samples() : 0;
+    }
     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
 }
 
@@ -729,6 +903,10 @@ static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
+    if (pk_mode[k] == 2u && pk_cur[k])              /* an ARP chord: the note sounding now */
+        play_note_off(t, kb_chord[k][pk_cur[k] - 1u]);
+    pk_mode[k] = 0;
+    pk_cur[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
@@ -760,6 +938,7 @@ static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
     uint32_t lay, fx, mute;
+    play_tick();                                 /* CHRD PLAY: the next notes of the strums and arps held */
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
     if (perf_remap)
         perf_key_remap();
@@ -795,6 +974,10 @@ static void keyboard_block(void)
                 kb_note[k] = KB_SILENT;
             else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
                 kb_note[k] = grid_key_note(k);
+            else if (play_on(&trk[kb_trk[k]]) && key_black(k))
+                kb_note[k] = KB_SILENT;               /* PLAY: a black key shapes the chord the white keys play, no sound */
+            else if (strum_on(&trk[kb_trk[k]]))   /* STR3 / STR7: a black key chooses the chord, a white key is a string */
+                kb_note[k] = (uint8_t)strum_key(&trk[kb_trk[k]], k);
             else
                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
             if (kb_note[k] == KB_SILENT)
@@ -1360,14 +1543,14 @@ static void events_block(uint32_t n)
         }
         engine_block(t);                              /* engine switch: fade, then switch (voice.c) */
         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
-        if ((t->armp && !t->p[P_AMODE]) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
+        if ((t->armp && !arp_keys(t)) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
             t->nheld = 0;
-            if (!t->p[P_AMODE])
+            if (!arp_keys(t))
                 t->arp_phys = 0;
             if (t->arp_note)
                 arp_silence(t);
         }
-        t->armp = t->p[P_AMODE];
+        t->armp = arp_keys(t);
         t->aholdp = t->p[P_AHOLD];
     }
     keyboard_block();
