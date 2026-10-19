@@ -259,7 +259,7 @@ static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SU
     "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
 #define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
 #define CPK_USER 4u                                     /* chord packs of the user's */
-#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 5 ms, 0..200 */
+#define CPK_STRUM_MAX 200u                               /* cpk.strum: x 5 ms, 0..1000 */
 typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
 typedef struct { const char *name; cpack_t p; } cpack_f_t;
 /* the chord packs: what each black key does (and how fast a strum goes) */
