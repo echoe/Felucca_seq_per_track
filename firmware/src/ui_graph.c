@@ -385,7 +385,8 @@ static void graph_scale(const track_t *t, uint16_t c)
 }
 /* CHORD (SCL 2): the chord's name ("Cm7": the last one the track played; before any, the one on its ROOT from
  * C4) over the keys from the C below its lowest note (two octaves, three for a wide one): its notes THEME, its
- * root's ACCENT, the others RAISE. OFF or a kit: what to do instead */
+ * root's ACCENT, the others RAISE. STR3 / STR7: the chord the black keys chose (the white keys strum it). OFF or a kit: what to do
+ * instead */
 static void panel_note(const char *a, const char *b, const char *c);
 static void panel_alert(uint32_t id, const char *a);
 static void graph_chord(const track_t *t, uint16_t c)
@@ -405,7 +406,10 @@ static void graph_chord(const track_t *t, uint16_t c)
         panel_note("NO CHORDS ON KITS", 0, 0);
         return;
     }
-    if (chord_last[k].n) {
+    if (strum_on(t)) {                                  /* STR3 / STR7: the chord the white keys strum (the black keys choose it) */
+        n = strum_chord(t, strum_slot[k], nn, &r, &mask);
+        cap = "STRUM";
+    } else if (chord_last[k].n) {
         r = chord_last[k].root;
         mask = chord_last[k].mask;
         n = chord_last[k].n;
@@ -415,7 +419,7 @@ static void graph_chord(const track_t *t, uint16_t c)
         n = chord_make(t, (uint32_t)(60 + t->p[P_ROOT]), nn, &r, &mask);
         cap = "ON ROOT";
     }
-    if (trk_vmode(t) != V_POLY)
+    if (trk_vmode(t) != V_POLY && !strum_on(t))
         cap = "ROOT ONLY";                              /* MONO / LEGATO / UNISON */
     chord_name(b, (uint32_t)r, mask);
     cv_text_on(14, 8, &AF_M, b, T_TEXT, T_SURF);
@@ -1893,6 +1897,55 @@ static void home_track_row(uint32_t c)
     cv_blit(3, (uint32_t)y);
 }
 #if FELUCCA_PATBANK
+/* SAVE > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
+static uint32_t cpks_sig;
+static void draw_cpk(void)
+{
+    enum { GW = 234, CW = 36, CH = 30 };
+    uint32_t i, sig = (uint32_t)cpk_key * 131u + (uint32_t)cpk_sel * 7u + cpk.strum + (uint32_t)play_on(TSEL) * 977u;
+    char nm[12];
+    for (i = 0; i < CPK_KEYS; i++)
+        sig = sig * 31u + cpk.act[i];
+    if (ui.force)                                       /* (one canvas over the whole panel: no gap fill, it flashed what the canvas drew again) */
+        cpks_sig = ~sig;
+    if (sig == cpks_sig)
+        return;
+    cpks_sig = sig;
+    cv_begin(GW, H_GRAPH, T_BG);
+    for (i = 0; i < CPK_KEYS; i++) {
+        static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
+        int32_t x = (i < 6u ? 4 : 23) + (int32_t)(i < 6u ? i : i - 6u) * (CW + 2), y = i < 6u ? 4 : 38;
+        uint32_t sel = i == cpk_key, on = cpk.act[i] != CA_NONE;
+        uint16_t fill = sel ? T_ACCENT : on ? T_RAISE : T_SURF, ink = sel ? T_INK : on ? T_TEXT : T_DIM;
+        cv_rrect(x, y, CW, CH, 3, fill, T_BG);
+        GFX_HOOK_ALIGN(x, y + 2, x + CW, y + 16, AL_HV, "chord key action centred");
+        cv_text_in(x, y + 2 + CAP_IN(S, 14), CW, &AF_S, CA_NAME[cpk.act[i]], ink, fill);
+        GFX_HOOK_ALIGN(x, y + 17, x + CW, y + 28, AL_HV, "chord key name centred");
+        cv_text_in(x, y + 17 + CAP_IN(S, 11), CW, &AF_S, BK[i], sel ? T_INK : T_DIM, fill);
+    }
+    {   /* what the key edited makes of a C chord */
+        cshape_t sh = play_shape(1u << cpk_key);
+        uint8_t out[CHORD_MAX];
+        int32_t r;
+        uint16_t mask;
+        uint32_t a = cpk.act[cpk_key];
+        if (a == CA_NONE)
+            str_cpy(nm, "NO CHANGE", sizeof nm);
+        else if (a == CA_STRUM || a == CA_ARP)
+            str_cpy(nm, a == CA_STRUM ? "STRUM IT" : "ARP IT", sizeof nm);
+        else {
+            (void)play_chord(TSEL, &sh, 60u, out, &r, &mask);
+            chord_name(nm, 60u, mask);
+        }
+        GFX_HOOK_ALIGN(0, 76, GW, 96, AL_HV, "chord preview centred");
+        cv_text_in(0, 76 + CAP_IN(S, 20), GW, &AF_S, nm, T_TEXT, T_BG);
+        GFX_HOOK_ALIGN(0, 100, GW, 116, AL_HV, "chord hint centred");
+        cv_text_in(0, 100 + CAP_IN(S, 16), GW, &AF_S, !play_on(TSEL) ? "SCL > CHORD: SET CHRD TO PLAY" : (cpk.strum & CPK_LATCH) ? "TAP KEYS ON OR OFF, PLAY A WHITE KEY" : "HOLD KEYS, PLAY A WHITE KEY", T_MID, T_BG);
+    }
+    cv_blit((uint32_t)CARD_X(0), Y_GRAPH);
+}
+#endif
+#if FELUCCA_PATBANK
 /* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale, bright
  * when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim, with a line of text, when the
  * arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
@@ -1911,10 +1964,8 @@ static void draw_gens(void)
     for (i = 0; i < GEN_N; i++)
         sig = sig * 31u + g->deg[i] + 7u * (g->thr[i] < dens) + 11u * (g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u));
     sig = sig * 31u + ph;
-    if (ui.force) {
-        draw_gaps(graph_y(), graph_h());
+    if (ui.force)                                       /* (one canvas over the whole panel: no gap fill, it flashed what the canvas drew again) */
         gens_sig = ~sig;
-    }
     if (sig == gens_sig)
         return;
     gens_sig = sig;
@@ -2340,6 +2391,10 @@ static void draw_graph(void)
     }
     if (!ui.home && pg->graph == GR_GENS) {
         draw_gens();
+        return;
+    }
+    if (!ui.home && pg->graph == GR_CPK) {
+        draw_cpk();
         return;
     }
 #endif

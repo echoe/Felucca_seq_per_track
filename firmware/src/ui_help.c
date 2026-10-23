@@ -54,6 +54,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"SEQUENCE", "[K1-4]TRACKS[PRESETS]CHAIN"},
     {"GEN", "[K1]DENS[K2]CHORD[K3]EVOLVE[K4]SCL"},
+    {"CHORDS", "[K1-4]PACK KEY ACT SPD[PRESETS]LATCH"},
     {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]CLOCK"},
     {"CLOCK", "[SELECT]TEMPO[GLO]HOLD: TAP"},
 };

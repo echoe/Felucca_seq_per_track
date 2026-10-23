@@ -868,10 +868,18 @@ static __attribute__((noinline)) void perf_key_remap(void)
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
 static void key_on(uint32_t k, track_t *t)
 {
-    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel;
+    uint32_t n, i, mc = trk_midi_ch(trk_index(t)), vel = kb_vel, md = 0, np;
+    if (play_on(t)) {                               /* CHRD PLAY: the black keys held shape it; STRUM / ARP play it a note at a time */
+        n = play_build(t, k, kb_note[k], vel);
+        md = n >> 8;
+        n &= 255u;
+    } else
+        n = chord_build(t, kb_note[k], kb_chord[k]);
+    np = md == 2u ? 0u : md == 1u ? 1u : n;         /* the notes that sound now */
     kb_chn[k] = 0;
+    pk_mode[k] = 0;
     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < np; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
             continue;
@@ -879,7 +887,14 @@ static void key_on(uint32_t k, track_t *t)
         midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | vel << 24);
     }
     in_key = 0;
-    kb_chn[k] = (uint8_t)n;
+    kb_chn[k] = (uint8_t)np;
+    if (md) {                                       /* the rest of the chord: play_tick */
+        pk_mode[k] = (uint8_t)md;
+        pk_n[k] = (uint8_t)n;
+        pk_i[k] = (uint8_t)np;
+        pk_cur[k] = 0;
+        pk_wait[k] = md == 1u ? play_strum_samples() : 0;
+    }
     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
 }
 
@@ -888,6 +903,10 @@ static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
+    if (pk_mode[k] == 2u && pk_cur[k])              /* an ARP chord: the note sounding now */
+        play_note_off(t, kb_chord[k][pk_cur[k] - 1u]);
+    pk_mode[k] = 0;
+    pk_cur[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
@@ -919,6 +938,7 @@ static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
     uint32_t lay, fx, mute;
+    play_tick();                                 /* CHRD PLAY: the next notes of the strums and arps held */
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
     if (perf_remap)
         perf_key_remap();
@@ -954,6 +974,12 @@ static void keyboard_block(void)
                 kb_note[k] = KB_SILENT;
             else if (song.grid == 1u)             /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
                 kb_note[k] = grid_key_note(k);
+            else if (play_on(&trk[kb_trk[k]]) && key_black(k)) {
+                kb_note[k] = KB_SILENT;               /* PLAY: a black key shapes the chord the white keys play, no sound */
+                play_latch_press(&trk[kb_trk[k]], k); /* (LATCH: it toggles) */
+            }
+            else if (strum_on(&trk[kb_trk[k]]))   /* STR3 / STR7: a black key chooses the chord, a white key is a string */
+                kb_note[k] = (uint8_t)strum_key(&trk[kb_trk[k]], k);
             else
                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
             if (kb_note[k] == KB_SILENT)

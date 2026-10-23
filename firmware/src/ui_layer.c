@@ -400,7 +400,6 @@ static void seq_after(uint32_t t, int rc)
         lys.loaded = 0;
     }
     ui_say(a, n);
-    ui.force = 1;
 }
 /* a track's sequence chosen (SEQ > SEQUENCE's knobs). Not while a song plays (it plays the projects' own) */
 static void seq_switch_ui(uint32_t t, uint32_t s)
@@ -415,7 +414,6 @@ static void seq_switch_ui(uint32_t t, uint32_t s)
     if (rc == 1) {                                       /* waits for the end of the one playing */
         char w[10] = {'T', (char)('1' + t), ' ', 'N', 'E', 'X', 'T', ' ', (char)('1' + s % PB_N), 0};
         ui_message(w);
-        ui.force = 1;
     } else if (rc == 2) {
         seq_after(t, 0);
     } else
@@ -433,7 +431,6 @@ static void seq_chain_ui(uint32_t t, int32_t steps)
     pb_chain_set(t, q, steps > 0);
     w[7] = (char)('1' + q);
     ui_say(w, steps > 0 ? " CHAINED" : " NOT CHAINED");
-    ui.force = 1;
 }
 /* main loop, every pass (main.c) */
 static void seq_poll(void)

@@ -829,6 +829,10 @@ static int preset_hint(char *b, uint32_t *on)
         str_cpy(b, pb_chained(song.sel, pb_target(song.sel)) ? "CHAIN ON" : "CHAIN OFF", 12);
         return 1;
     }
+    if (pg->graph == GR_CPK) {                          /* SAVE > CHORDS: PRESETS is LATCH (where the sound's name is) */
+        str_cpy(b, (cpk.strum & CPK_LATCH) ? "LATCH" : "HOLD", 12);
+        return 1;
+    }
     if (pg->graph == GR_SONG) {
         uint32_t used = ui.song_row < chain_config.count && ui.song_row < CHAIN_ROWS, v = 0xFFu;
         if (used)
@@ -1145,6 +1149,19 @@ static void draw_columns(void)
         return;
     }
 #if FELUCCA_PATBANK
+    if (cur_page()->graph == GR_CPK) {                 /* SAVE > CHORDS: PACK, KEY, ACT, STRUM */
+        static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
+        char nb[8], pn[10], sv[8];
+        str_cpy(pn, cpk_name(cpk_sel, nb), 8);
+        if (memcmp(&cpk, cpk_pack(cpk_sel), sizeof cpk))
+            str_cpy(pn + str_len(pn), "*", 2);           /* (changed since it was loaded) */
+        draw_column(0, "PACK", pn, "", VAL(0u), (int32_t)cpk_sel * 1000 / (int32_t)(CPK_N - 1u), ICON_SCALE);
+        draw_column(1, "KEY", BK[cpk_key], "", VAL(1u), (int32_t)cpk_key * 1000 / (int32_t)(CPK_KEYS - 1u), ICON_PITCH);
+        draw_column(2, "ACT", CA_NAME[cpk.act[cpk_key]], "", VAL(2u), (int32_t)cpk.act[cpk_key] * 1000 / (int32_t)(CA_N - 1u), ICON_ORDER);
+        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 5);
+        draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)CPK_SPEED(&cpk) * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
+        return;
+    }
     if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and SCL of the selected track */
         static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE"};
         static const uint8_t GI[GS_N + 1] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_SCALE};

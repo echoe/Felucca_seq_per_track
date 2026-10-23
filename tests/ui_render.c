@@ -773,7 +773,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_DETAIL_COND, S_DETAIL_FILL, S_AUTO_COND, S_GLO_FILL, S_SEQ_EUCLID, S_SEQ_EUCLID_DRUM, S_SEQ_EUCLID_64,
        S_MENU_SELECT, S_PROJECT_ERASE, S_CONFIRM_ERASE_PROJ, S_TOOLS_CLEAN, S_CONFIRM_CLEAN,
        S_MENU_MIDI_TRACK, S_MENU_MIDI_TCH_UNUSED, S_MENU_MIDI_AUTO, S_HOME_TRACKS_MIDI, S_MIXER_MIDI, S_EDIT_PHASE_FOLD,
-       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_GEN, S_GEN_OFF, S_COUNT };
+       S_SEQUENCE, S_SEQUENCE_FULL, S_SEQUENCE_NEXT, S_SONG_LANES_SEQ, S_SEQUENCE_CHAIN, S_GEN, S_GEN_OFF, S_CHORD_STRUM, S_CHORDS, S_CHORDS_USER, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -805,7 +805,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "layer_seq_euclid_64",
     "menu_select", "project_erase", "confirm_erase_project", "tools_clean", "confirm_clean",
     "menu_midi_track", "menu_midi_channels_unused", "menu_midi_auto_select", "home_tracks_midi", "mixer_midi", "edit_phase_fold",
-    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain", "gen", "gen_off"};
+    "sequence", "sequence_full", "sequence_next", "song_lanes_seq", "sequence_chain", "gen", "gen_off", "chord_strum", "chords", "chords_user"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1131,6 +1131,19 @@ static void setup(int s)
         go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
         break;
     }
+    case S_CHORDS: case S_CHORDS_USER:               /* 1.6.1_sequences SAVE > CHORDS: the JAZZ pack, key 3 (7) picked; a user pack, changed */
+        TSEL->p[P_CHRD] = s == S_CHORDS ? CH_PLAY : CH_OFF;
+        cpk_defaults(); cpk_sel = s == S_CHORDS ? 1 : (uint8_t)CPK_NF + 1u; cpk_key = 2;
+        cpk = *cpk_pack(cpk_sel);
+        if (s == S_CHORDS_USER) { cpk.act[2] = CA_MIN9; cpk.act[7] = CA_A11; cpk.strum = 12 | CPK_LATCH; }
+        go_title("CHORDS"); ui.hot_col = 2; ui.hot_t = 30;
+        break;
+    case S_CHORD_STRUM:                              /* 1.6.1_sequences: STR7, the black key of the V chord chosen: G7 */
+        TSEL->p[P_VOICE] = V_POLY; TSEL->p[P_ROOT] = 0; TSEL->p[P_SCALE] = 1;
+        TSEL->p[P_CHRD] = CH_STR7; TSEL->p[P_VOIC] = VC_CLOSE;
+        strum_select(TSEL, 4u);
+        go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
+        break;
     case S_CHORD_OFF: go_title("CHORD"); break;
     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
     case S_ARP: go_title("ARP"); break;

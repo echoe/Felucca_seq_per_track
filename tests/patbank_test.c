@@ -84,6 +84,7 @@ static void reset(void)
     fail_after = -1;
     ui_prefs2 = 0;
     ui_prefs3 = 0;
+    cpk_defaults();
     pb_ready = 0;
     pb_dirty = 0;
     pb_clear_all();
@@ -450,6 +451,34 @@ int main(void)
         project_load(2);
         ok &= gen_set[0][GS_DENS] == 64 && gen_set[3][GS_CHORD] == 0 && gen_set[1][GS_EVOLVE] == 24;
         bad += check("GEN's DENS, CHORD, EVOLVE: kept by project SAVE / LOAD and the autosave; a project without them: the defaults", ok);
+    }
+
+    {   /* CHRD PLAY's chord packs (what the black keys do, the user's packs) are saved with the music */
+        reset();
+        ok = !memcmp(&cpk, &CPK_F[0].p, sizeof cpk) && !memcmp(&cpk_user[3], &CPK_F[0].p, sizeof cpk);
+        cpk.act[0] = CA_SUS2; cpk.act[5] = CA_A13; cpk.act[10] = CA_ARP; cpk.strum = 17;
+        cpk_user[1].act[3] = CA_DIM7; cpk_user[1].strum = 3;
+        cpk.strum |= CPK_LATCH; cpk_user[1].strum |= CPK_LATCH;                   /* LATCH is part of a pack */
+        cpk_touch();
+        ok &= project_save_as(0, "CPK") == 0;
+        cpk_defaults();
+        memset(proj_slot, 0, sizeof proj_slot);
+        ok &= cpk.act[0] == CA_MIN;
+        project_load(0);
+        ok &= cpk.act[0] == CA_SUS2 && cpk.act[5] == CA_A13 && cpk.act[10] == CA_ARP && cpk.strum == (17 | CPK_LATCH) &&
+              cpk_user[1].act[3] == CA_DIM7 && cpk_user[1].strum == (3 | CPK_LATCH) && !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk);
+        cpk_user[2].act[1] = CA_MAJ9; cpk_touch();                  /* the autosave (the live store) */
+        as_run(120000u);
+        power_cycle();
+        ok &= cpk_user[2].act[1] == CA_MAJ9 && cpk.act[5] == CA_A13 && cpk_user[1].strum == (3 | CPK_LATCH) && (cpk.strum & CPK_LATCH);
+        /* a project saved with another pack: its own on loading */
+        cpk_defaults(); cpk.strum = 5; cpk_touch();
+        ok &= project_save_as(2, "OTHER") == 0;
+        cpk.strum = 33; cpk.act[2] = CA_AUG;
+        memset(proj_slot, 0, sizeof proj_slot);
+        project_load(2);
+        ok &= cpk.strum == 5 && cpk.act[2] == CA_7;
+        bad += check("the chord packs (what each black key does, the user's four) are kept by project SAVE / LOAD and the autosave", ok);
     }
 
     printf(bad ? "patbank test FAILED\n" : "patbank test passed\n");

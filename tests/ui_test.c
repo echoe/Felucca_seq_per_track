@@ -2637,7 +2637,7 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_TOOLS) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
-            } else if (g == GR_SEQS) {                 /* (1.6 SEQUENCE: PRESETS = CHAIN, the sound stays; test_seq_chain_knob) */
+            } else if (g == GR_SEQS || g == GR_CPK) {                 /* (1.6 SEQUENCE: PRESETS = CHAIN, CHORDS: LATCH, the sound stays; test_seq_chain_knob) */
                 sel_ok &= same_snd && same_steps && ui.page == i;
             } else {
                 snd_ok &= !same_snd && same_steps && ui.page == i && !ui.home;
@@ -2687,7 +2687,7 @@ static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const ste
 static uint32_t auto_cur(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
 static int test_page_cycles(void)
 {
-    static const char *const SAVE_CYC[6] = {"USER", "PRESETS", "PHRASES", "PROJECT", "TOOLS", "USER"};   /* (1.5, #173) */
+    static const char *const SAVE_CYC[7] = {"USER", "PRESETS", "PHRASES", "PROJECT", "CHORDS", "TOOLS", "USER"};   /* (1.5, #173; 1.6.1_sequences: CHORDS) */
     int bad = 0, ok = 1;
     uint32_t i, n0;
     step_t ref[NSTEP], want;
@@ -2695,11 +2695,11 @@ static int test_page_cycles(void)
     uint16_t rw[EV_ROWS];
     /* the cycles: each button's taps, in order */
     ui_power_on();
-    for (i = 0; i < 6u; i++) {
+    for (i = 0; i < 7u; i++) {
         press(B_SAVE); frames(320);
         ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, SAVE_CYC[i]);
     }
-    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > TOOLS > USER", ok);
+    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > CHORDS > TOOLS > USER", ok);
     ok = 1;
     for (i = 0; i < NPAGES; i++) {                       /* every page in a family its button reaches, and its LED */
         uint32_t f = PAGES[i].fam;
@@ -9391,6 +9391,59 @@ static int test_seq_end_knob(void)
         bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE (0..127) and SCL of the selected track", ok);
     }
 
+    /* SAVE > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
+    ui_power_on();
+    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
+    go_title("CHORDS"); frame();
+    ok = cur_page()->graph == GR_CPK && cur_page()->fam == FAM_SAVE;
+    turn(EN_K1, 1); frames(4);
+    ok &= cpk_sel == 1 && !memcmp(&cpk, &CPK_F[1].p, sizeof cpk);                   /* JAZZ: loaded */
+    turn(EN_K2, 3); frames(4);
+    ok &= cpk_key == 3;
+    turn(EN_K2, 99); frames(4);
+    ok &= cpk_key == CPK_KEYS - 1u;
+    turn(EN_K2, -99); frames(4); turn(EN_K2, 2); frames(4);
+    turn(EN_K3, 3); frames(4);
+    ok &= cpk_key == 2 && cpk.act[2] == CPK_F[1].p.act[2] + 3u;
+    turn(EN_K3, 99); frames(4);
+    ok &= cpk.act[2] == CA_N - 1u;
+    turn(EN_K3, -99); frames(4);
+    ok &= cpk.act[2] == CA_NONE;
+    turn(EN_K4, 5); frames(4);
+    ok &= cpk.strum == CPK_F[1].p.strum + 5u;
+    turn(EN_K4, 500); frames(4);
+    ok &= cpk.strum == CPK_STRUM_MAX;
+    press(B_OCTUP); frames(10);                                                     /* a built in pack: not written over */
+    ok &= !memcmp(&cpk_user[0], &CPK_F[0].p, sizeof cpk) && cpk_sel == 1;
+    turn(EN_K1, CPK_NF - 1u); frames(4);                                              /* the first user pack */
+    ok &= cpk_sel == CPK_NF && !memcmp(&cpk, &cpk_user[0], sizeof cpk);
+    turn(EN_K3, 5); frames(4);                                                       /* its key 3: changed, then saved by OCT+ */
+    cpk.strum = 21; cpk.act[cpk_key] = CA_AUG;
+    press(B_OCTUP); frames(10);
+    ok &= !memcmp(&cpk_user[0], &cpk, sizeof cpk) && cpk_user[0].strum == 21 && cpk_user[0].act[cpk_key] == CA_AUG;
+    turn(EN_K1, -3); frames(4); turn(EN_K1, 3); frames(4);                              /* away and back: the saved one */
+    ok &= cpk.strum == 21 && cpk.act[cpk_key] == CA_AUG;
+    /* PRESETS on SAVE > CHORDS: LATCH on (right) or off (left); kept with the pack, the footer says it, the keys' toggles clear */
+    turn(EN_PRESET, 1); frames(4);
+    ok &= (cpk.strum & CPK_LATCH) != 0;
+    {
+        char h[16]; uint32_t on;
+        ok &= preset_hint(h, &on) == 1 && str_eq(h, "LATCH");
+        play_lat[0] = 0x5;
+        turn(EN_PRESET, -2); frames(4);
+        ok &= !(cpk.strum & CPK_LATCH) && play_lat[0] == 0 && preset_hint(h, &on) == 1 && str_eq(h, "HOLD");
+        turn(EN_PRESET, 3); frames(4);
+        ok &= (cpk.strum & CPK_LATCH) != 0;
+        turn(EN_K4, 5); frames(4);                         /* the speed does not touch it */
+        ok &= (cpk.strum & CPK_LATCH) != 0 && CPK_SPEED(&cpk) == CPK_SPEED(cpk_pack(cpk_sel)) + 5u;
+        turn(EN_K4, 500); frames(4);
+        ok &= (cpk.strum & CPK_LATCH) != 0 && CPK_SPEED(&cpk) == CPK_STRUM_MAX;
+        turn(EN_K1, 1); frames(4); turn(EN_K1, -1); frames(4);      /* a pack loaded: its own LATCH (off, and nothing latched) */
+        ok &= !(cpk.strum & CPK_LATCH);
+    }
+    cpk_defaults(); cpk_sel = 0; cpk_key = 0;
+    bad += check("1.6.1 SAVE > CHORDS: the knobs pick the pack, the black key, its action and the strum speed; OCT+ saves a user pack", ok);
+
     /* the footer says what PRESETS does on both pages (preset_hint: ui_draw.c) */
     {
         char h[16]; uint32_t on;
@@ -9689,6 +9742,51 @@ static int test_home_tracks(void)
     ui_prefs = 0;
     bad += check("1.3 HOME > TRACKS with LARGE: cards with M labels, the rows kept (SCOPE: the tall cards as before)", ok);
     ui_power_on();
+    return bad;
+}
+
+/* 1.6.1_sequences: turning a knob on SEQUENCE, GEN, CHORDS (and PRESETS on them, on SONG) redraws what changed and nothing blank on
+ * the way (host_fl_*: no pixel flashes, FLAT and LINE), no whole-screen redraw is asked for, and the screen is then what a full
+ * redraw draws (the cards, the panel and the footer follow the value) */
+static int test_no_flash_new_pages(void)
+{
+    static const struct { const char *page; uint8_t knob; int32_t v; } E[] = {
+        {"SEQUENCE", EN_K1, 1}, {"SEQUENCE", EN_K3, 2}, {"SEQUENCE", EN_PRESET, 1}, {"SEQUENCE", EN_PRESET, -1},
+        {"GEN", EN_K1, 4}, {"GEN", EN_K2, 5}, {"GEN", EN_K3, 6}, {"GEN", EN_K4, 1},
+        {"CHORDS", EN_K1, 1}, {"CHORDS", EN_K2, 3}, {"CHORDS", EN_K3, 2}, {"CHORDS", EN_K4, 4}, {"CHORDS", EN_PRESET, 1},
+        {"SONG", EN_PRESET, 2}};
+    int bad = 0, ok = 1;
+    uint32_t e, st, n, i, diff;
+    static uint16_t shot[240 * 240];
+    for (e = 0; e < sizeof E / sizeof E[0]; e++)
+        for (st = 0; st < 2u; st++) {
+            ui_power_on();
+            ui_style = st ? ST_LINE : ST_FLAT;
+            memset(gen, 0, sizeof gen); gen_defaults(); cpk_defaults(); pb_clear_all();
+            trk[0].p[P_AMODE] = AM_GEN; song.playing = 0;
+            chain_defaults(&chain_config);
+            chain_config.count = 1; chain_config.row[0].repeat = 1; chain_config.row[0].slot[0] = CH_MAKE(1u, 0u);
+            ui.song_row = 0; ui.song_trk = 0;
+            go_title(E[e].page);
+            frames(100);
+            host_fl_begin();
+            turn(E[e].knob, E[e].v);
+            frames(3);
+            n = host_fl_end(0, 240);
+            if (n)
+                printf("    %s %s knob %u: %u pixels flashed\n", E[e].page, st ? "LINE" : "FLAT", (unsigned)E[e].knob, n);
+            ok &= n == 0u && ui.force == 0;
+            memcpy(shot, host_screen, sizeof shot);                 /* what the incremental frames drew ... */
+            ui.force = 1;
+            frame();
+            diff = 0;
+            for (i = 70u * 240u; i < 240u * 240u; i++)              /* (the panel and the footer: the cards' icons fade on their own) */
+                diff += shot[i] != host_screen[i];
+            if (diff)
+                printf("    %s %s knob %u: %u pixels differ from a full redraw\n", E[e].page, st ? "LINE" : "FLAT", (unsigned)E[e].knob, diff);
+            ok &= diff == 0u;                                         /* ... is what a full redraw draws */
+        }
+    bad += check("1.6.1 SEQUENCE, GEN, CHORDS, SONG: a knob draws what changed, no flash, no whole-screen redraw, the same as a full redraw", ok);
     return bad;
 }
 
@@ -10050,6 +10148,7 @@ int main(void)
     bad += test_help();
     bad += test_seq_end_knob();
     bad += test_no_flash();
+    bad += test_no_flash_new_pages();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

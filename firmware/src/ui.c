@@ -401,7 +401,7 @@ static uint32_t large_kind(void)
         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
-           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS || g == GR_GENS ? LK_LABEL : LK_TALL;
+           g == GR_SLICES || g == GR_EVENTS || g == GR_SEQS || g == GR_GENS || g == GR_CPK ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height */
 static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
@@ -1783,6 +1783,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_EVENTS) return 16u;     /* AUTOMATION: no knob is an action; OCT+ by the row (ev_oct) */
+    if (pg->graph == GR_CPK) return 16u;        /* SAVE > CHORDS: no knob is an action; OCT+ saves the pack (cpk_save) */
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
         return 1u;                               /* PLAY / STOP (also the PLAY button) */
@@ -1806,6 +1807,7 @@ static uint32_t act_col(void)
 {
     if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
     if (!ui.home && cur_page()->graph == GR_EVENTS) return 5u;
+    if (!ui.home && cur_page()->graph == GR_CPK) return 5u;
     return !ui.home && cur_page()->graph == GR_PATS ? 2u : ui.act;
 }
 
@@ -1814,6 +1816,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
     uint32_t id = cur_page()->id[c & 3u];
     if (cur_page()->graph == GR_EVENTS) return ev_act_name();
+    if (cur_page()->graph == GR_CPK) return "SAVE";
     if (cur_page()->graph == GR_TOOLS) {
         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
         return (c & 3u) == 1u && ui.tl_clean ? "CLEAN" : actions[c & 3u];   /* (1.5.5: KNOB 2 on: CLEAN INIT) */
@@ -1839,6 +1842,7 @@ static int act_ready(void)
     if (!c--)
         return 0;
     if (cur_page()->graph == GR_EVENTS) return ev_act_ready();
+    if (cur_page()->graph == GR_CPK) return cpk_sel >= CPK_NF;          /* a user pack picked */
     if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
                                  c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
