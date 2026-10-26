@@ -1046,7 +1046,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         gen_edit(slot, steps);
         return;
     }
-    if (pg->graph == GR_CPK) {                            /* SAVE > CHORDS: KNOB 1 PACK, 2 KEY, 3 ACT, 4 STRUM (patbank.c cpk_edit) */
+    if (pg->graph == GR_CPK) {                            /* SCL > CHORDS: KNOB 1 PACK, 2 KEY, 3 ACT, 4 STRUM (patbank.c cpk_edit) */
         cpk_edit(slot, steps);
         return;
     }
@@ -1366,7 +1366,7 @@ static void presets_turn(int32_t s)
         song_seq_edit(s);
         return;
     }
-    if (!ui.home && g == GR_CPK) {                        /* SAVE > CHORDS: PRESETS = LATCH (right on, left off) */
+    if (!ui.home && g == GR_CPK) {                        /* SCL > CHORDS: PRESETS = LATCH (right on, left off) */
         cpk_latch_ui(s);
         return;
     }

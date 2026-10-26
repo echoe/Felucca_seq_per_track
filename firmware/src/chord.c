@@ -244,7 +244,7 @@ static uint32_t strum_led_key(const track_t *t)
 
 /* ------------------------------------------------------------------------- PLAY --- */
 /* CHRD PLAY (1.6.1_sequences): a chord with every white key (its own note, on the track's scale as the keys are) and the black
- * keys held with it shape the chord: each black key has an action (MIN, 7, +9, STRUM ...: cpk, set on the SAVE > CHORDS page),
+ * keys held with it shape the chord: each black key has an action (MIN, 7, +9, STRUM ...: cpk, set on the SCL > CHORDS page),
  * applied lowest key first, so a later one changes what an earlier one set (MIN then 7: a minor seventh; MIN7: one key for it;
  * 7 and +9 and +11 stack). The chord is the one held when the white key goes down. The black keys make no sound.
  *   quality  MIN DIM AUG SUS2 SUS4 POW      the triad (MAJ when none)

@@ -315,13 +315,13 @@ static void pb_reset_to_live(void)
     pb_gen++;
 }
 
-/* ---- SAVE > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
+/* ---- SCL > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
 static void cpk_touch(void)                             /* the packs changed: saved with the music (patbank_store.c) */
 {
     pb_dirty |= 1u << PB_META_O;
     pb_gen++;
 }
-/* SAVE > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
+/* SCL > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
 static void cpk_edit(uint32_t slot, int32_t steps)
 {
     if (slot == 0u) {
@@ -336,7 +336,7 @@ static void cpk_edit(uint32_t slot, int32_t steps)
         cpk.strum = (uint8_t)((uint32_t)clamp((int32_t)CPK_SPEED(&cpk) + steps, 0, (int32_t)CPK_STRUM_MAX) | (cpk.strum & CPK_LATCH));
     cpk_touch();
 }
-/* PRESETS on SAVE > CHORDS: LATCH on (turned right) or off (left): the black keys toggle their actions instead of being held */
+/* PRESETS on SCL > CHORDS: LATCH on (turned right) or off (left): the black keys toggle their actions instead of being held */
 static void cpk_latch_ui(int32_t steps)
 {
     cpk.strum = (uint8_t)((cpk.strum & ~CPK_LATCH) | (steps > 0 ? CPK_LATCH : 0u));

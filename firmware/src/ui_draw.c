@@ -829,7 +829,7 @@ static int preset_hint(char *b, uint32_t *on)
         str_cpy(b, pb_chained(song.sel, pb_target(song.sel)) ? "CHAIN ON" : "CHAIN OFF", 12);
         return 1;
     }
-    if (pg->graph == GR_CPK) {                          /* SAVE > CHORDS: PRESETS is LATCH (where the sound's name is) */
+    if (pg->graph == GR_CPK) {                          /* SCL > CHORDS: PRESETS is LATCH (where the sound's name is) */
         str_cpy(b, (cpk.strum & CPK_LATCH) ? "LATCH" : "HOLD", 12);
         return 1;
     }
@@ -1149,7 +1149,7 @@ static void draw_columns(void)
         return;
     }
 #if FELUCCA_PATBANK
-    if (cur_page()->graph == GR_CPK) {                 /* SAVE > CHORDS: PACK, KEY, ACT, STRUM */
+    if (cur_page()->graph == GR_CPK) {                 /* SCL > CHORDS: PACK, KEY, ACT, STRUM */
         static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
         char nb[8], pn[10], sv[8];
         str_cpy(pn, cpk_name(cpk_sel, nb), 8);

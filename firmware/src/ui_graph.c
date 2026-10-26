@@ -1897,7 +1897,7 @@ static void home_track_row(uint32_t c)
     cv_blit(3, (uint32_t)y);
 }
 #if FELUCCA_PATBANK
-/* SAVE > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
+/* SCL > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
 static uint32_t cpks_sig;
 static void draw_cpk(void)
 {
