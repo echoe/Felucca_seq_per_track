@@ -502,16 +502,15 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
  * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
 #if FELUCCA_PATBANK
-/* ARP > GEN: KNOB 1..3 DENS, CHORD, EVOLVE of the selected track (0..127), KNOB 4 its SCL */
+/* ARP > GEN: KNOB 1..4 DENS, CHORD, EVOLVE, ALGO of the selected track (0..127) */
 static void gen_edit(uint32_t slot, int32_t steps)
 {
     uint32_t t = song.sel % NTRK;
     if (slot < GS_N) {
         gen_set[t][slot] = (uint8_t)clamp((int32_t)gen_set[t][slot] + steps, 0, 127);
-        pb_dirty |= 7u;                                  /* (the settings are in the sequence store's first three objects) */
+        pb_dirty |= 0xFu;                                /* (the settings are in the sequence store's first four objects) */
         pb_gen++;
-    } else
-        TSEL->p[P_SCALE] = (int16_t)clamp((int32_t)TSEL->p[P_SCALE] + steps, 0, (int32_t)(sizeof SCALE_MASK / sizeof SCALE_MASK[0]) - 1);
+    }
 }
 #endif
 #if FELUCCA_PATBANK

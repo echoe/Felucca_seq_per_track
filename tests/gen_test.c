@@ -5,6 +5,8 @@
  *   density   DENS 0 nothing, 127 every step; a lower DENS plays a subset of what a higher one plays (the same loop)
  *   chord     CHORD 0 single notes; from 1 a fifth or a third, triads, sevenths, 9ths and quartals as it grows; all in the scale
  *   evolve    EVOLVE 0 the same loop every time; more changes more of the steps each loop
+ *   algo      ALGO 0 the walk's own notes; at the marks the fifths, the bounce and the drum's pattern (the root on the
+ *              even steps, an octave up on the odd, the even ones strong, the odd soft); between them a steady blend
  *   play      only while the music plays, from the first step; the keys play as with the arp OFF; leaving GEN starts it over
  * Built and run by tests/run_tests.sh. */
 #define UI_TEST_NO_MAIN 1
@@ -29,8 +31,8 @@ static track_t *gen_track(void)
     t->arp_pos = 0xFFFFFFF; t->arp_idx = 0xFFFFFFFFu; t->armp = AM_GEN;
     return t;
 }
-/* the note-ons of `loops` loops of the track: (arp step, note) pairs; returns how many */
-typedef struct { uint8_t step, note; } hit_t;
+/* the note-ons of `loops` loops of the track: (arp step, note, velocity) triples; returns how many */
+typedef struct { uint8_t step, note, vel; } hit_t;
 static uint32_t listen(track_t *t, uint32_t loops, hit_t *h, uint32_t hmax)
 {
     uint32_t blocks = loops * LOOP_N * div_samples(2) / CTL + 2u, b, n = 0, i;
@@ -41,7 +43,8 @@ static uint32_t listen(track_t *t, uint32_t loops, hit_t *h, uint32_t hmax)
             for (i = 0; i < NVOICE; i++)
                 if (t->v[i].age == v0 + 1u && n < hmax) {
                     h[n].step = (uint8_t)(t->arp_idx % LOOP_N);
-                    h[n++].note = t->v[i].note;
+                    h[n].note = t->v[i].note;
+                    h[n++].vel = t->v[i].vel;
                 }
     }
     return n;
@@ -146,6 +149,51 @@ int main(void)
         for (i = 0; i < n; i++) ok &= in_scale(t, h2[i].note);
     }
     bad += check("GEN: EVOLVE 0 repeats the loop; some steps change each loop at 24, many more at 127, always in the scale", ok);
+
+    /* algo: 0 the walk's own notes (above); at the marks the fifths, the bounce and the drum's pattern; between, a steady blend */
+    t = gen_track();
+    gen_set[0][GS_ALGO] = 42;
+    n = listen(t, 1, h, 1024);
+    ok = n == LOOP_N;
+    for (i = 0; i < n; i++) {
+        int32_t pc = (int32_t)h[i].note - 48 - t->p[P_ROOT] - t->p[P_TRANS];
+        ok &= (pc % 12) == 0 || (pc % 12) == 7;            /* a root or a fifth */
+    }
+    bad += check("GEN: ALGO at its first mark every note a root or a fifth of the scale", ok);
+
+    t = gen_track();
+    gen_set[0][GS_ALGO] = 84;
+    n = listen(t, 1, h, 1024);
+    ok = n == LOOP_N;
+    for (i = 0; i < n; i++) {
+        int32_t oct = ((int32_t)h[i].note - 48 - t->p[P_ROOT] - t->p[P_TRANS]) / 12;
+        ok &= oct == (int32_t)(h[i].step & 1u);            /* the lower half on the even steps, the upper on the odd */
+    }
+    bad += check("GEN: ALGO at its second mark the bounce: the lower octave on the even steps, the upper on the odd", ok);
+
+    t = gen_track();
+    gen_set[0][GS_ALGO] = 127;
+    n = listen(t, 1, h, 1024);
+    {
+        uint32_t iv0 = 0, base;
+        while (!((scale_mask(t) >> iv0) & 1u))
+            iv0++;
+        base = 48u + (uint32_t)t->p[P_ROOT] + iv0 + (uint32_t)t->p[P_TRANS];
+        ok = n == LOOP_N;
+        for (i = 0; i < n; i++)
+            ok &= h[i].note == (h[i].step & 1u ? base + 12u : base) && h[i].vel == (h[i].step & 1u ? 80u : 116u);
+    }
+    bad += check("GEN: ALGO at the most the drum's pattern: the root on the even steps, an octave up on the odd, the even strong, the odd soft", ok);
+
+    t = gen_track();
+    gen_set[0][GS_ALGO] = 21;                              /* halfway between none and the fifths: a blend */
+    n = listen(t, 2, h, 1024);
+    ok = n == 2u * LOOP_N;
+    for (i = 0; i < LOOP_N; i++)
+        ok &= h[i].note == h[LOOP_N + i].note;             /* (EVOLVE 0: the blend is steady between loops) */
+    for (i = 0; i < n; i++)
+        ok &= in_scale(t, h[i].note);
+    bad += check("GEN: ALGO between its marks blends: the same steady notes loop after loop, all in the scale", ok);
 
     /* play: only while the music plays, from the first step; keys play as with the arp off */
     t = gen_track();

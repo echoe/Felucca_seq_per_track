@@ -1946,9 +1946,9 @@ static void draw_cpk(void)
 }
 #endif
 #if FELUCCA_PATBANK
-/* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale, bright
- * when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim, with a line of text, when the
- * arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
+/* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale (ALGO's
+ * re-voicing included), bright when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim,
+ * with a line of text, when the arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
 static uint32_t gens_sig;
 static void draw_gens(void)
 {
@@ -1958,7 +1958,8 @@ static void draw_gens(void)
     uint8_t iv[12];
     uint32_t i, len = (uint32_t)clamp(t->p[P_SLEN], 1, (int32_t)GEN_N), on = t->p[P_AMODE] == AM_GEN, n = gen_scale(t, iv),
              r = gen_range(n, t), dens = gen_set[song.sel % NTRK][GS_DENS], chd = gen_set[song.sel % NTRK][GS_CHORD],
-             ph = on && song.playing && t->arp_idx != 0xFFFFFFFFu ? t->arp_idx % len : 0xFFu, sig = on + 3u * len + 7u * dens + 13u * chd + 29u * r;
+             alg = gen_set[song.sel % NTRK][GS_ALGO],
+             ph = on && song.playing && t->arp_idx != 0xFFFFFFFFu ? t->arp_idx % len : 0xFFu, sig = on + 3u * len + 7u * dens + 13u * chd + 29u * r + 41u * alg;
     if (!g->ready)
         sig += 101u;
     for (i = 0; i < GEN_N; i++)
@@ -1978,7 +1979,9 @@ static void draw_gens(void)
             cv_rrect(x, 116, 5, 2, 1, i < len ? T_RAISE : T_SURF, T_BG);
             continue;
         }
-        h = 8 + (int32_t)(g->deg[i] < r ? g->deg[i] : r - 1u) * 92 / (int32_t)(r > 1u ? r - 1u : 1u);
+        uint32_t dd = g->deg[i] < r ? g->deg[i] : r - 1u, av;
+        dd = gen_algo(g, t, iv, n, r, i, dd, &av);      /* (as it plays: ALGO's re-voicing) */
+        h = 8 + (int32_t)dd * 92 / (int32_t)(r > 1u ? r - 1u : 1u);
         y = 118 - h;
         cv_rrect(x, y, 5, h, 1, fill, T_BG);
         if (chd && g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u))

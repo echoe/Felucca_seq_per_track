@@ -493,7 +493,7 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
 #if FELUCCA_PATBANK
-    {"GEN", FAM_ARP, SC_TRK, GR_GENS, {0, 1, 2, 3}},   /* 1.6_sequences: MODE GEN's DENS, CHORD, EVOLVE, SCL of the selected track (ui_input.c gen_edit) */
+    {"GEN", FAM_ARP, SC_TRK, GR_GENS, {0, 1, 2, 3}},   /* 1.6_sequences: MODE GEN's DENS, CHORD, EVOLVE, ALGO of the selected track (ui_input.c gen_edit) */
 #endif
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL

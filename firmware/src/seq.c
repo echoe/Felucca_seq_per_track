@@ -306,14 +306,14 @@ static void arp_off(track_t *t)                  /* the sounding arp note(s) end
 typedef struct { uint8_t deg[GEN_N], thr[GEN_N], cthr[GEN_N], aux[GEN_N], ready, last; uint32_t rnd; } gen_t;
 static gen_t gen[NTRK];
 /* the knobs of GEN per track (the GEN page; saved with the sequence banks, patbank_store.c): not track parameters, so no
- * project format, user preset or protocol changes */
-enum { GS_DENS, GS_CHORD, GS_EVOLVE, GS_N };
-static uint8_t gen_set[NTRK][GS_N] = {{64, 0, 24}, {64, 0, 24}, {64, 0, 24}, {64, 0, 24}};
+ * project format, user preset or protocol changes. ALGO: 0..127 the algorithms the notes are re-voiced by (0: none) */
+enum { GS_DENS, GS_CHORD, GS_EVOLVE, GS_ALGO, GS_N };
+static uint8_t gen_set[NTRK][GS_N] = {{64, 0, 24, 0}, {64, 0, 24, 0}, {64, 0, 24, 0}, {64, 0, 24, 0}};
 static void gen_defaults(void)
 {
     uint32_t t;
     for (t = 0; t < NTRK; t++) {
-        gen_set[t][GS_DENS] = 64; gen_set[t][GS_CHORD] = 0; gen_set[t][GS_EVOLVE] = 24;
+        gen_set[t][GS_DENS] = 64; gen_set[t][GS_CHORD] = 0; gen_set[t][GS_EVOLVE] = 24; gen_set[t][GS_ALGO] = 0;
     }
 }
 
@@ -382,6 +382,54 @@ static __attribute__((noinline)) void gen_evolve(const track_t *t, gen_t *g, uin
             g->aux[i] = (uint8_t)(gen_rand(g) & 255u);   /* another voicing and loudness */
     }
 }
+/* ALGO's algorithms: FIFTHS the note to the nearest scale degree that is a root or a fifth (a power sound), BOUNCE the lower
+ * half of the range with the register flipping each step, DRUM the kit's pattern: the root on the even steps, the note the
+ * octave above on the odd, the even ones strong, the odd soft. gen_algo: 0..127 picks the place between them (0 none, 42 the
+ * fifths, 84 the bounce, the most the drum's); a step takes the next algorithm with the chance in between, a stable hash of
+ * the step, so the blend is steady between loops and redraws. The notes stay of the scale; the drum's also sets the accent. */
+static uint32_t gen_algo_fifths(const uint8_t *iv, uint32_t n, uint32_t r, uint32_t d)
+{
+    uint32_t k, best = 0, bd = 99u;
+    for (k = 0; k < r; k++) {
+        uint32_t s = iv[k % n] % 12u, dd = k > d ? k - d : d - k;
+        if ((s == 0u || s == 7u) && dd < bd) {
+            bd = dd;
+            best = k;
+        }
+    }
+    return best;
+}
+static uint32_t gen_algo_bounce(uint32_t i, uint32_t r, uint32_t d)
+{
+    uint32_t h = r / 2u;
+    if (h < 2u)
+        return d;
+    return (d % h) + (i & 1u) * h;
+}
+static uint32_t gen_algo_drum(uint32_t n, uint32_t r, uint32_t i, uint32_t *vel)
+{
+    uint32_t d = (i & 1u) ? (r > n ? n : r - 1u) : 0u;
+    *vel = (i & 1u) ? 80u : 116u;
+    return d;
+}
+static uint32_t gen_algo(gen_t *g, const track_t *t, const uint8_t *iv, uint32_t n, uint32_t r, uint32_t i, uint32_t d, uint32_t *vel)
+{
+    uint32_t v = gen_set[trk_index(t)][GS_ALGO];
+    if (!v)
+        return d;
+    {
+        uint32_t a = v / 42u, b = a < 3u ? a + 1u : 3u, p = v % 42u;
+        if (b > a && (((i * 2654435761u) + ((uint32_t)g->aux[i] << 16)) % 42u) >= p)
+            b = a;
+        if (b == 1u)
+            d = gen_algo_fifths(iv, n, r, d);
+        else if (b == 2u)
+            d = gen_algo_bounce(i, r, d);
+        else if (b == 3u)
+            d = gen_algo_drum(n, r, i, vel);
+    }
+    return d;
+}
 /* the chord on step i: the offsets in scale degrees above its note (max 3), how many; 0 none */
 static uint32_t gen_chord(const gen_t *g, uint32_t i, uint32_t c, uint8_t *off)
 {
@@ -417,6 +465,7 @@ static __attribute__((noinline)) void gen_fire(track_t *t, uint32_t period)
     r = gen_range(n, t);
     d = g->deg[i] < r ? g->deg[i] : r - 1u;
     vel = 64u + (g->aux[i] >> 2);
+    d = gen_algo(g, t, iv, n, r, i, d, &vel);
     t->arp_off = period * (uint32_t)t->p[P_AGATE] / 128u;
     nc = gen_chord(g, i, (uint32_t)gen_set[trk_index(t)][GS_CHORD], off);
     for (k = 0; k <= nc; k++) {

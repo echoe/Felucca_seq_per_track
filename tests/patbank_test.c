@@ -426,31 +426,32 @@ int main(void)
         bad += check("SONG: a lost store: the chosen sequence is empty, the song plays", ok);
     }
 
-    {   /* the ARP's GEN knobs (DENS, CHORD, EVOLVE of the four tracks) are saved with the sequence banks */
+    {   /* the ARP's GEN knobs (DENS, CHORD, EVOLVE, ALGO of the four tracks) are saved with the sequence banks */
         reset();
-        ok = gen_set[0][GS_DENS] == 64 && gen_set[0][GS_CHORD] == 0 && gen_set[0][GS_EVOLVE] == 24;
-        gen_set[0][GS_DENS] = 100; gen_set[0][GS_CHORD] = 70; gen_set[0][GS_EVOLVE] = 5;
-        gen_set[3][GS_DENS] = 12; gen_set[3][GS_CHORD] = 127; gen_set[3][GS_EVOLVE] = 99;
-        pb_dirty |= 7u; pb_gen++;
+        ok = gen_set[0][GS_DENS] == 64 && gen_set[0][GS_CHORD] == 0 && gen_set[0][GS_EVOLVE] == 24 && gen_set[0][GS_ALGO] == 0;
+        gen_set[0][GS_DENS] = 100; gen_set[0][GS_CHORD] = 70; gen_set[0][GS_EVOLVE] = 5; gen_set[0][GS_ALGO] = 90;
+        gen_set[3][GS_DENS] = 12; gen_set[3][GS_CHORD] = 127; gen_set[3][GS_EVOLVE] = 99; gen_set[3][GS_ALGO] = 42;
+        pb_dirty |= 0xFu; pb_gen++;
         ok &= project_save_as(0, "GEN") == 0;
         gen_defaults();
         memset(proj_slot, 0, sizeof proj_slot);
         ok &= gen_set[0][GS_DENS] == 64;
         project_load(0);
-        ok &= gen_set[0][GS_DENS] == 100 && gen_set[0][GS_CHORD] == 70 && gen_set[0][GS_EVOLVE] == 5 &&
-              gen_set[3][GS_DENS] == 12 && gen_set[3][GS_CHORD] == 127 && gen_set[3][GS_EVOLVE] == 99 && gen_set[1][GS_DENS] == 64;
-        gen_set[1][GS_EVOLVE] = 50; pb_dirty |= 7u; pb_gen++;      /* the autosave (the live store) */
+        ok &= gen_set[0][GS_DENS] == 100 && gen_set[0][GS_CHORD] == 70 && gen_set[0][GS_EVOLVE] == 5 && gen_set[0][GS_ALGO] == 90 &&
+              gen_set[3][GS_DENS] == 12 && gen_set[3][GS_CHORD] == 127 && gen_set[3][GS_EVOLVE] == 99 && gen_set[3][GS_ALGO] == 42 &&
+              gen_set[1][GS_DENS] == 64 && gen_set[1][GS_ALGO] == 0;
+        gen_set[1][GS_EVOLVE] = 50; gen_set[1][GS_ALGO] = 11; pb_dirty |= 0xFu; pb_gen++;      /* the autosave (the live store) */
         as_run(120000u);
         power_cycle();
-        ok &= gen_set[1][GS_EVOLVE] == 50 && gen_set[0][GS_DENS] == 100 && gen_set[3][GS_CHORD] == 127;
+        ok &= gen_set[1][GS_EVOLVE] == 50 && gen_set[1][GS_ALGO] == 11 && gen_set[0][GS_DENS] == 100 && gen_set[3][GS_CHORD] == 127 && gen_set[3][GS_ALGO] == 42;
         /* a project saved with the defaults loads them back over another's values */
-        gen_defaults(); pb_dirty |= 7u; pb_gen++;
+        gen_defaults(); pb_dirty |= 0xFu; pb_gen++;
         ok &= project_save_as(2, "DEF") == 0;
         gen_set[0][GS_DENS] = 1; gen_set[3][GS_CHORD] = 99;
         memset(proj_slot, 0, sizeof proj_slot);
         project_load(2);
-        ok &= gen_set[0][GS_DENS] == 64 && gen_set[3][GS_CHORD] == 0 && gen_set[1][GS_EVOLVE] == 24;
-        bad += check("GEN's DENS, CHORD, EVOLVE: kept by project SAVE / LOAD and the autosave; a project without them: the defaults", ok);
+        ok &= gen_set[0][GS_DENS] == 64 && gen_set[3][GS_CHORD] == 0 && gen_set[1][GS_EVOLVE] == 24 && gen_set[0][GS_ALGO] == 0;
+        bad += check("GEN's DENS, CHORD, EVOLVE, ALGO: kept by project SAVE / LOAD and the autosave; a project without them: the defaults", ok);
     }
 
     {   /* CHRD PLAY's chord packs (what the black keys do, the user's packs) are saved with the music */

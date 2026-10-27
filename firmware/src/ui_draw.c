@@ -1162,14 +1162,14 @@ static void draw_columns(void)
         draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)CPK_SPEED(&cpk) * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
         return;
     }
-    if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and SCL of the selected track */
-        static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE"};
-        static const uint8_t GI[GS_N + 1] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_SCALE};
+    if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and ALGO of the selected track */
+        static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE", "ALGO"};
+        static const uint8_t GI[GS_N] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_ALGORITHM};
         uint32_t t = song.sel % NTRK;
         char gv[GS_N][8];
         for (c = 0; c < GS_N; c++) {
             uint32_t v = gen_set[t][c];
-            if (c == GS_CHORD && !v) {
+            if ((c == GS_CHORD || c == GS_ALGO) && !v) {
                 str_cpy(gv[c], "OFF", sizeof gv[c]);
                 draw_column(c, GL[c], gv[c], "", VAL(c), 0, GI[c]);
             } else {
@@ -1177,7 +1177,6 @@ static void draw_columns(void)
                 draw_column(c, GL[c], gv[c], "%", VAL(c), (int32_t)v * 1000 / 127, GI[c]);
             }
         }
-        draw_column(3, "SCL", TP[P_SCALE].names[TSEL->p[P_SCALE]], "", VAL(3u), -1, GI[GS_N]);
         return;
     }
 #endif

@@ -9371,13 +9371,13 @@ static int test_seq_end_knob(void)
     ok &= CH_SEQ(chain_config.row[0].slot[0]) == 0u;
     chain_defaults(&chain_config);
     bad += check("1.6 SONG: PRESETS turns the cell's sequence (0 = as saved .. 8), KNOB 3 resets it, a silent cell has none", ok);
-    /* ARP > GEN: KNOB 1..3 turn DENS, CHORD, EVOLVE of the selected track, KNOB 4 its scale; the arp's MODE stays */
+    /* ARP > GEN: KNOB 1..4 turn DENS, CHORD, EVOLVE, ALGO of the selected track; the arp's MODE and the track's scale stay */
     ui_power_on();
     gen_defaults();
     go_title("GEN"); frame();
     {
         uint32_t sel = song.sel;
-        int16_t mode = TSEL->p[P_AMODE];
+        int16_t mode = TSEL->p[P_AMODE], scl = TSEL->p[P_SCALE];
         ok = cur_page()->graph == GR_GENS && cur_page()->fam == FAM_ARP;
         turn(EN_K1, 10); frames(4);
         ok &= gen_set[sel][GS_DENS] == 74;
@@ -9389,13 +9389,16 @@ static int test_seq_end_knob(void)
         ok &= gen_set[sel][GS_CHORD] == 33;
         turn(EN_K3, -4); frames(4);
         ok &= gen_set[sel][GS_EVOLVE] == 20;
-        TSEL->p[P_SCALE] = 0;
         turn(EN_K4, 2); frames(4);
-        ok &= TSEL->p[P_SCALE] == 2 && TSEL->p[P_AMODE] == mode;
+        ok &= gen_set[sel][GS_ALGO] == 2 && TSEL->p[P_AMODE] == mode && TSEL->p[P_SCALE] == scl;
         turn(EN_K4, 99); frames(4);
-        ok &= TSEL->p[P_SCALE] == 15;
-        gen_defaults(); TSEL->p[P_SCALE] = 0;
-        bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE (0..127) and SCL of the selected track", ok);
+        ok &= gen_set[sel][GS_ALGO] == 101;
+        turn(EN_K4, 200); frames(4);
+        ok &= gen_set[sel][GS_ALGO] == 127;
+        turn(EN_K4, -200); frames(4);
+        ok &= gen_set[sel][GS_ALGO] == 0;
+        gen_defaults();
+        bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE, ALGO (0..127) of the selected track", ok);
     }
 
     /* SCL > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
