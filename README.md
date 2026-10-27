@@ -114,12 +114,12 @@ stack):
 - **ARP**: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go.
 - Up to six tones: past that the fifth goes first, then the highest. VOIC voices the chord as it does the other chord modes.
 
-**LATCH** (SAVE > CHORDS, PRESETS: right is LATCH, left is HOLD): with LATCH on a black key pressed toggles its action on and a second
+**LATCH** (SCL > CHORDS, PRESETS: right is LATCH, left is HOLD): with LATCH on a black key pressed toggles its action on and a second
 press turns it off, so the chord keeps its shape with no key held; the keys whose action is on stay lit. The chord is the latched
 actions (a key still held does not count twice). Turning LATCH off, loading a pack or loading the music clears them. LATCH is part
 of the pack, saved and loaded with it.
 
-**SAVE > CHORDS** (the SAVE button's fifth page) is where the black keys are set: KNOB 1 PACK, 2 KEY (which black key), 3 ACT (what it
+**SCL > CHORDS** (the SCL button's third page, after SCL and CHORD) is where the black keys are set: KNOB 1 PACK, 2 KEY (which black key), 3 ACT (what it
 does), 4 SPEED (the strum, 0..200 ms between notes). The page shows all eleven keys as chips with what a C chord becomes with the one
 edited. Packs are what the black keys do and the strum speed together: six are built in (POP, JAZZ, SUS, EXT, EASY, HARP) and four
 are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was changed since), and **OCT+ saves** what the black keys

@@ -1131,7 +1131,7 @@ static void setup(int s)
         go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
         break;
     }
-    case S_CHORDS: case S_CHORDS_USER:               /* 1.6.1_sequences SAVE > CHORDS: the JAZZ pack, key 3 (7) picked; a user pack, changed */
+    case S_CHORDS: case S_CHORDS_USER:               /* 1.6.1_sequences SCL > CHORDS: the JAZZ pack, key 3 (7) picked; a user pack, changed */
         TSEL->p[P_CHRD] = s == S_CHORDS ? CH_PLAY : CH_OFF;
         cpk_defaults(); cpk_sel = s == S_CHORDS ? 1 : (uint8_t)CPK_NF + 1u; cpk_key = 2;
         cpk = *cpk_pack(cpk_sel);

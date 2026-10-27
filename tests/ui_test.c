@@ -2687,7 +2687,7 @@ static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const ste
 static uint32_t auto_cur(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
 static int test_page_cycles(void)
 {
-    static const char *const SAVE_CYC[7] = {"USER", "PRESETS", "PHRASES", "PROJECT", "CHORDS", "TOOLS", "USER"};   /* (1.5, #173; 1.6.1_sequences: CHORDS) */
+    static const char *const SAVE_CYC[6] = {"USER", "PRESETS", "PHRASES", "PROJECT", "TOOLS", "USER"};   /* (1.5, #173; 1.6.1: CHORDS moved to SCL's end) */
     int bad = 0, ok = 1;
     uint32_t i, n0;
     step_t ref[NSTEP], want;
@@ -2695,11 +2695,18 @@ static int test_page_cycles(void)
     uint16_t rw[EV_ROWS];
     /* the cycles: each button's taps, in order */
     ui_power_on();
-    for (i = 0; i < 7u; i++) {
+    for (i = 0; i < 6u; i++) {
         press(B_SAVE); frames(320);
         ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, SAVE_CYC[i]);
     }
-    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > CHORDS > TOOLS > USER", ok);
+    bad += check("1.5 (#173): SAVE cycles USER > PRESETS > PHRASES > PROJECT > TOOLS > USER", ok);
+    ok = 1;
+    for (i = 0; i < 3u; i++) {                                     /* 1.6.1: CHORDS, was SAVE's, is SCL's last page */
+        press(B_SCL); frames(320);
+        ok &= !ui.home && cur_page()->fam == FAM_SCL &&
+              str_eq(cur_page()->title, i == 0 ? "SCL" : i == 1 ? "CHORD" : "CHORDS");
+    }
+    bad += check("1.6.1: SCL cycles SCL > CHORD > CHORDS (CHORDS moved here from SAVE)", ok);
     ok = 1;
     for (i = 0; i < NPAGES; i++) {                       /* every page in a family its button reaches, and its LED */
         uint32_t f = PAGES[i].fam;
@@ -9391,11 +9398,11 @@ static int test_seq_end_knob(void)
         bad += check("1.6 ARP > GEN: the knobs turn DENS, CHORD, EVOLVE (0..127) and SCL of the selected track", ok);
     }
 
-    /* SAVE > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
+    /* SCL > CHORDS: KNOB 1 the pack (loaded at once), 2 the black key, 3 its action, 4 the strum speed; OCT+ saves a user pack */
     ui_power_on();
     cpk_defaults(); cpk_sel = 0; cpk_key = 0;
     go_title("CHORDS"); frame();
-    ok = cur_page()->graph == GR_CPK && cur_page()->fam == FAM_SAVE;
+    ok = cur_page()->graph == GR_CPK && cur_page()->fam == FAM_SCL;
     turn(EN_K1, 1); frames(4);
     ok &= cpk_sel == 1 && !memcmp(&cpk, &CPK_F[1].p, sizeof cpk);                   /* JAZZ: loaded */
     turn(EN_K2, 3); frames(4);
@@ -9423,7 +9430,7 @@ static int test_seq_end_knob(void)
     ok &= !memcmp(&cpk_user[0], &cpk, sizeof cpk) && cpk_user[0].strum == 21 && cpk_user[0].act[cpk_key] == CA_AUG;
     turn(EN_K1, -3); frames(4); turn(EN_K1, 3); frames(4);                              /* away and back: the saved one */
     ok &= cpk.strum == 21 && cpk.act[cpk_key] == CA_AUG;
-    /* PRESETS on SAVE > CHORDS: LATCH on (right) or off (left); kept with the pack, the footer says it, the keys' toggles clear */
+    /* PRESETS on SCL > CHORDS: LATCH on (right) or off (left); kept with the pack, the footer says it, the keys' toggles clear */
     turn(EN_PRESET, 1); frames(4);
     ok &= (cpk.strum & CPK_LATCH) != 0;
     {
@@ -9442,7 +9449,7 @@ static int test_seq_end_knob(void)
         ok &= !(cpk.strum & CPK_LATCH);
     }
     cpk_defaults(); cpk_sel = 0; cpk_key = 0;
-    bad += check("1.6.1 SAVE > CHORDS: the knobs pick the pack, the black key, its action and the strum speed; OCT+ saves a user pack", ok);
+    bad += check("1.6.1 SCL > CHORDS: the knobs pick the pack, the black key, its action and the strum speed; OCT+ saves a user pack", ok);
 
     /* the footer says what PRESETS does on both pages (preset_hint: ui_draw.c) */
     {
