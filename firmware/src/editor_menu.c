@@ -39,8 +39,10 @@ static const uint8_t ED_MENU[][2] = {
 #if FELUCCA_CPU2
     {MI_CPU2, 32},                                     /* 1.6.1, the second core (Discussion #141): 2ND CORE OFF / ON (BETA),
                                                         * SYSTEM, from the next power-on (a FELUCCA_CPU2=0 build: 0..31) */
+    {MI_SEQSW, 33},                                    /* 1.6.1_sequences: SEQ SWITCH NOW / END, SYSTEM (patbank.c) */
+#else
+    {MI_SEQSW, 32},                                    /* 1.6.1_sequences: no 2ND CORE in a FELUCCA_CPU2=0 build: SEQ SWITCH is id 32 */
 #endif
-    {MI_SEQSW, 33},                                    /* 1.6.1_sequences: SEQ SWITCH NOW / END, SYSTEM (patbank.c; 32 in a FELUCCA_CPU2=0 build) */
 };
 #define ED_MENU_N NELEM(ED_MENU)
 
