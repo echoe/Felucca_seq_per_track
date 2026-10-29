@@ -252,6 +252,7 @@ static uint32_t engine_icon(const char *name)
         {"GRAIN", ICON_GRAIN},
         {"PHYS", ICON_PHYS},
         {"DRUM", ICON_DRUM},
+        {"SHDRUM", ICON_DRUM},
         {"NOISE", ICON_NOISE},
         {"FM6", ICON_MOD},                    /* (symbol_modular: six operators patched; a glyph of its own wanted) */
     };

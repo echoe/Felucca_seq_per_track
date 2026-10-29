@@ -426,6 +426,9 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
     mkdir -p build/drum_demo
     run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
+    # SHDRUM (tests/shdrum_test.c): the two-layer drum engine (src/eng_shdrum.c)
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/shdrum_test" tests/shdrum_test.c -lm
+    run "SHDRUM: presets (level, DC, end, repeatable), every control, the sweep, corners, isolation, demos" "$OUT/shdrum_test" build/shdrum_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo

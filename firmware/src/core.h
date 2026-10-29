@@ -36,7 +36,16 @@
                                             * second core (mod.c, voice.c SPREAD, eng_formant.c): one each with two cores,
                                             * one for all with one, as up to 1.6 */
 #define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)   /* a part's copy */
-#define NENGINES (13 + FELUCCA_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
+#ifndef FELUCCA_SHDRUM
+#define FELUCCA_SHDRUM (!FELUCCA_FM4)   /* the SHDRUM engine (eng_shdrum.c), engine 14, after SLICE; FELUCCA_SHDRUM=0 builds without it (and
+                                  * FELUCCA_FM4=1 does: the DIGITAL engine's key in the EDIT layer leaves no white key for a 15th).
+                                  * It needs SLICE (its engine number, the preset categories and the favourites' rows are laid out
+                                  * for 14 engines before it) */
+#endif
+#if FELUCCA_SHDRUM && !FELUCCA_SLICE
+#error "FELUCCA_SHDRUM needs FELUCCA_SLICE (SHDRUM is engine 14)"
+#endif
+#define NENGINES (13 + FELUCCA_SLICE + FELUCCA_SHDRUM)   /* SLICE (13), SHDRUM (14) come last: the other engines keep their numbers */
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define NENG_SHOWN (NENGINES - !FELUCCA_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
                                                 * in the display order of engines.c ENGINE_ORDER */
@@ -116,6 +125,7 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
 /* engine indices the stores name (engines.c ENGINES[]: append-only) */
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
+#define ENGI_SHDRUM 14u
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
  * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */

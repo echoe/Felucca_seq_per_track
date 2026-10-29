@@ -104,6 +104,10 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
+#if FELUCCA_SHDRUM
+    if (e == ENGI_SHDRUM)                         /* SHDRUM: the preset's layers and effects (ui.c apply_preset_to) */
+        shd_load(t, pi);
+#endif
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {

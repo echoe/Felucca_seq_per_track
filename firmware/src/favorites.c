@@ -7,16 +7,20 @@ typedef struct {
     uint32_t user, filter;
 } favorites_t;
 static favorites_t favorites __attribute__((section(".pool")));
+/* The engines whose presets can be favourites: rows 0..13. Row 14 holds MIDI LEARN's map and row 15 the CUSTOM palette and the
+ * settings' flag bytes (below, midi_learn.c, ui.c), so an engine 14 (SHDRUM) has no favourites: a mark on one of its presets
+ * does nothing (the settings keep their layout: older firmware reads them as before) */
+#define FAV_ROWS 14u
 static int favorite_has(uint32_t engine, uint32_t preset)
 {
     if (engine == NENGINES)
         return preset < UP_SLOTS && ((favorites.user >> preset) & 1u);
-    return engine < NENGINES && engine < 16u && preset < 256u &&
+    return engine < NENGINES && engine < FAV_ROWS && preset < 256u &&
         ((favorites.factory[engine][preset / 8u] >> (preset % 8u)) & 1u);
 }
 static int favorite_set(uint32_t engine, uint32_t preset, int on)
 {
-    if (engine > NENGINES || (engine == NENGINES ? preset >= UP_SLOTS : engine >= 16u || preset >= 256u))
+    if (engine > NENGINES || (engine == NENGINES ? preset >= UP_SLOTS : engine >= FAV_ROWS || preset >= 256u))
         return 0;
     if (favorite_has(engine, preset) == !!on) return 0;
     if (engine == NENGINES) {

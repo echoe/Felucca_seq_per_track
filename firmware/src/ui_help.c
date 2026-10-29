@@ -34,6 +34,12 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"FILTER", "[K1]LP BP HP[K2]CUTOFF[EDIT]VOICE"},
     {"LANES", H_LANES},
     {"LANES 2", H_LANES},
+#if FELUCCA_SHDRUM
+    {"SH LAYER A", "[K1]ATTACK[K2]DECAY[K3]LEVEL[EDIT]LAYER B"},
+    {"SH LAYER B", "[K1]ATTACK[K2]DECAY[K3]LEVEL[EDIT]FX 1"},
+    {"SH FX 1", "[K1]DRIVE[K2]CLICK[K3]FOLD[K4]CRUSH[EDIT]FX 2"},
+    {"SH FX 2", "[K1]FILTER[K2]CUT[K3]RES[K4]FENV[EDIT]VOICE"},
+#endif
     {"SLICES", "[K1]SLICE[K2]MOVE[OCT+]SPLIT, JOIN"},
     {"OPERATOR", H_FMOP},
     {"OP ENV", H_FMOP},
