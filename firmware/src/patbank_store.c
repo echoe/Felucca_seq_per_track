@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The sequence banks in flash (patbank.c): store s (0..3 the projects A..D, PB_LIVE the music as it is now), six objects
  * OBJ_PB0 + 6 s + o, each an A/B pair of storage.c. Payload: 8 bytes {'P', 'B', 1, o, 0 x 4}, then (objects 0..2 are version 2 since
- * the ARP's GEN: their last four bytes are GEN's DENS, CHORD, EVOLVE of the four tracks; the meta object: the chained masks there)
+ * the ARP's GEN: their last four bytes are GEN's DENS, CHORD, EVOLVE, ALGO of the four tracks; the meta object: the chained masks there)
  *   o < 5   six sequences (576 bytes each), 3464 bytes
  *   o = 5   the last two sequences, the sequence each track plays (4), the 32 LENs, per sequence its automation record
  *           count and ON (2 bytes), then the records of the sequences with some (3 bytes each, in order); the playing
@@ -35,7 +35,7 @@ static uint32_t pb_build(uint32_t o)
     uint32_t n = pb_obj_pats(o), pos = PB_HDR, q;
     memset(pb_wire, 0, PB_HDR);
     pb_wire[0] = 'P'; pb_wire[1] = 'B'; pb_wire[2] = 1; pb_wire[3] = (uint8_t)o;
-    if (o < GS_N) {                                     /* GEN (version 2): the objects 0..2 carry DENS, CHORD, EVOLVE */
+    if (o < GS_N) {                                     /* GEN (version 2): the objects 0..3 carry DENS, CHORD, EVOLVE, ALGO */
         pb_wire[2] = 2;
         for (q = 0; q < NTRK; q++)
             pb_wire[4u + q] = gen_set[q][o];

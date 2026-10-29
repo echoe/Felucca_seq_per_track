@@ -273,7 +273,7 @@ static uint32_t page_icon(const page_t *pg)
     case GR_PATS: return ICON_X_PATTERN;      /* SAVE > PHRASES: the pattern loader */
     case GR_SEQS: return ICON_X_PATTERN;      /* SEQ > SEQUENCE */
     case GR_GENS: return ICON_ARP;            /* ARP > GEN */
-    case GR_CPK: return ICON_SCALE;           /* SAVE > CHORDS */
+    case GR_CPK: return ICON_SCALE;           /* SCL > CHORDS */
     case GR_SONG: return ICON_X_SONG;         /* SONG: the disc */
     case GR_EVENTS: return motion_icon();     /* AUTOMATION */
     default: return ICON_NONE;

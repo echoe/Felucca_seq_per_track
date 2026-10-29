@@ -308,32 +308,41 @@ static void pb_reset_to_live(void)
     pb_clear_all();
     gen_defaults();                                      /* (the ARP's GEN knobs: the store's, if it has them, come after) */
     cpk_defaults();                                      /* (CHRD PLAY's chord packs, the same) */
+    memset(play_lat, 0, sizeof play_lat);
     for (t = 0; t < NTRK; t++)
         pb_sync(t);
     pb_dirty = 0x3Fu;
     pb_gen++;
 }
 
-/* ---- SAVE > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
+/* ---- SCL > CHORDS (chord.c): the pack the black keys follow, edited and kept ---- */
 static void cpk_touch(void)                             /* the packs changed: saved with the music (patbank_store.c) */
 {
     pb_dirty |= 1u << PB_META_O;
     pb_gen++;
 }
-/* SAVE > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
+/* SCL > CHORDS: KNOB 1 the pack (it is loaded at once), 2 the black key, 3 its action, 4 the strum speed */
 static void cpk_edit(uint32_t slot, int32_t steps)
 {
     if (slot == 0u) {
         cpk_sel = (uint8_t)clamp((int32_t)cpk_sel + steps, 0, (int32_t)CPK_N - 1);
         cpk = *cpk_pack(cpk_sel);
+        memset(play_lat, 0, sizeof play_lat);              /* (a pack of its own: nothing latched from the last one) */
     } else if (slot == 1u)
         cpk_key = (uint8_t)clamp((int32_t)cpk_key + steps, 0, (int32_t)CPK_KEYS - 1);
     else if (slot == 2u)
         cpk.act[cpk_key] = (uint8_t)clamp((int32_t)cpk.act[cpk_key] + steps, 0, (int32_t)CA_N - 1);
     else
-        cpk.strum = (uint8_t)clamp((int32_t)cpk.strum + steps, 0, (int32_t)CPK_STRUM_MAX);
+        cpk.strum = (uint8_t)((uint32_t)clamp((int32_t)CPK_SPEED(&cpk) + steps, 0, (int32_t)CPK_STRUM_MAX) | (cpk.strum & CPK_LATCH));
     cpk_touch();
-    ui.force = 1;
+}
+/* PRESETS on SCL > CHORDS: LATCH on (turned right) or off (left): the black keys toggle their actions instead of being held */
+static void cpk_latch_ui(int32_t steps)
+{
+    cpk.strum = (uint8_t)((cpk.strum & ~CPK_LATCH) | (steps > 0 ? CPK_LATCH : 0u));
+    memset(play_lat, 0, sizeof play_lat);
+    ui_say("LATCH ", steps > 0 ? "ON" : "OFF");
+    cpk_touch();
 }
 /* OCT+: what the black keys do now, kept as the user's pack picked (a built in one is not written over) */
 static void cpk_save(void)

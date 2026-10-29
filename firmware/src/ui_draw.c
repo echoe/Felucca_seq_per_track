@@ -829,6 +829,10 @@ static int preset_hint(char *b, uint32_t *on)
         str_cpy(b, pb_chained(song.sel, pb_target(song.sel)) ? "CHAIN ON" : "CHAIN OFF", 12);
         return 1;
     }
+    if (pg->graph == GR_CPK) {                          /* SCL > CHORDS: PRESETS is LATCH (where the sound's name is) */
+        str_cpy(b, (cpk.strum & CPK_LATCH) ? "LATCH" : "HOLD", 12);
+        return 1;
+    }
     if (pg->graph == GR_SONG) {
         uint32_t used = ui.song_row < chain_config.count && ui.song_row < CHAIN_ROWS, v = 0xFFu;
         if (used)
@@ -1145,7 +1149,7 @@ static void draw_columns(void)
         return;
     }
 #if FELUCCA_PATBANK
-    if (cur_page()->graph == GR_CPK) {                 /* SAVE > CHORDS: PACK, KEY, ACT, STRUM */
+    if (cur_page()->graph == GR_CPK) {                 /* SCL > CHORDS: PACK, KEY, ACT, STRUM */
         static const char *const BK[CPK_KEYS] = {"F#3", "G#3", "A#3", "C#4", "D#4", "F#4", "G#4", "A#4", "C#5", "D#5", "F#5"};
         char nb[8], pn[10], sv[8];
         str_cpy(pn, cpk_name(cpk_sel, nb), 8);
@@ -1154,18 +1158,18 @@ static void draw_columns(void)
         draw_column(0, "PACK", pn, "", VAL(0u), (int32_t)cpk_sel * 1000 / (int32_t)(CPK_N - 1u), ICON_SCALE);
         draw_column(1, "KEY", BK[cpk_key], "", VAL(1u), (int32_t)cpk_key * 1000 / (int32_t)(CPK_KEYS - 1u), ICON_PITCH);
         draw_column(2, "ACT", CA_NAME[cpk.act[cpk_key]], "", VAL(2u), (int32_t)cpk.act[cpk_key] * 1000 / (int32_t)(CA_N - 1u), ICON_ORDER);
-        fmt_int(sv, (int32_t)cpk.strum * 5);
-        draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)cpk.strum * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
+        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 20);
+        draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)CPK_SPEED(&cpk) * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
         return;
     }
-    if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and SCL of the selected track */
-        static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE"};
-        static const uint8_t GI[GS_N + 1] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_SCALE};
+    if (cur_page()->graph == GR_GENS) {                /* ARP > GEN: DENS, CHORD, EVOLVE and ALGO of the selected track */
+        static const char *const GL[GS_N] = {"DENS", "CHORD", "EVOLVE", "ALGO"};
+        static const uint8_t GI[GS_N] = {ICON_PROB, ICON_MIX, ICON_LOOP, ICON_ALGORITHM};
         uint32_t t = song.sel % NTRK;
         char gv[GS_N][8];
         for (c = 0; c < GS_N; c++) {
             uint32_t v = gen_set[t][c];
-            if (c == GS_CHORD && !v) {
+            if ((c == GS_CHORD || c == GS_ALGO) && !v) {
                 str_cpy(gv[c], "OFF", sizeof gv[c]);
                 draw_column(c, GL[c], gv[c], "", VAL(c), 0, GI[c]);
             } else {
@@ -1173,7 +1177,6 @@ static void draw_columns(void)
                 draw_column(c, GL[c], gv[c], "%", VAL(c), (int32_t)v * 1000 / 127, GI[c]);
             }
         }
-        draw_column(3, "SCL", TP[P_SCALE].names[TSEL->p[P_SCALE]], "", VAL(3u), -1, GI[GS_N]);
         return;
     }
 #endif

@@ -244,13 +244,13 @@ static uint32_t strum_led_key(const track_t *t)
 
 /* ------------------------------------------------------------------------- PLAY --- */
 /* CHRD PLAY (1.6.1_sequences): a chord with every white key (its own note, on the track's scale as the keys are) and the black
- * keys held with it shape the chord: each black key has an action (MIN, 7, +9, STRUM ...: cpk, set on the SAVE > CHORDS page),
+ * keys held with it shape the chord: each black key has an action (MIN, 7, +9, STRUM ...: cpk, set on the SCL > CHORDS page),
  * applied lowest key first, so a later one changes what an earlier one set (MIN then 7: a minor seventh; MIN7: one key for it;
  * 7 and +9 and +11 stack). The chord is the one held when the white key goes down. The black keys make no sound.
  *   quality  MIN DIM AUG SUS2 SUS4 POW      the triad (MAJ when none)
  *   seventh  6 7 MAJ7, and MIN7 DIM7 M7B5 MMAJ7 (a quality with it), 9 MAJ9 MIN9 (with the ninth)
  *   extra    +9 +11 +13 (added tones), INV (the lowest tone up an octave), BASS (the root an octave down)
- *   how      STRUM: the notes one after the other, cpk.strum x 5 ms apart, all held until the key is let go
+ *   how      STRUM: the notes one after the other, (cpk.strum & CPK_SPEED) x 20 ms apart, all held until the key is let go
  *            ARP: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go
  * Up to CHORD_MAX (six) tones: past that the fifth goes first, then the highest. VOIC voices it as it does the other chord modes. */
 enum { CA_NONE, CA_MIN, CA_DIM, CA_AUG, CA_SUS2, CA_SUS4, CA_POW, CA_6, CA_7, CA_MAJ7, CA_MIN7, CA_DIM7, CA_M7B5, CA_MMAJ7,
@@ -259,7 +259,9 @@ static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SU
     "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
 #define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
 #define CPK_USER 4u                                     /* chord packs of the user's */
-#define CPK_STRUM_MAX 200u                               /* cpk.strum: x 5 ms, 0..1000 */
+#define CPK_STRUM_MAX 100u                               /* cpk.strum: x 20 ms, 0..2000 (the low seven bits) */
+#define CPK_LATCH 0x80u                                 /* cpk.strum's top bit: the black keys toggle their action on and off instead of being held */
+#define CPK_SPEED(p) ((uint32_t)(p)->strum & 0x7Fu)
 typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
 typedef struct { const char *name; cpack_t p; } cpack_f_t;
 /* the chord packs: what each black key does (and how fast a strum goes) */
@@ -298,7 +300,7 @@ static int cpk_valid(const cpack_t *p)
     for (i = 0; i < CPK_KEYS; i++)
         if (p->act[i] >= CA_N)
             return 0;
-    return p->strum <= CPK_STRUM_MAX;
+    return CPK_SPEED(p) <= CPK_STRUM_MAX;
 }
 
 static uint8_t cpk_key;                                 /* the black key the page edits (0..10) */
@@ -403,6 +405,26 @@ static uint32_t play_held(void)
             m |= 1u << key_place(k);
     return m;
 }
+/* LATCH (cpk.strum's top bit, the pack's): a black key pressed toggles its action on for the track, and it stays on until the key
+ * is pressed again (or LATCH is turned off, the music is loaded); the chord takes the black keys that are on, not the ones held */
+static uint16_t play_lat[NTRK];
+static uint32_t play_mask(const track_t *t) { return (cpk.strum & CPK_LATCH) ? play_lat[trk_index(t)] : play_held(); }
+static void play_latch_press(const track_t *t, uint32_t k)
+{
+    if (cpk.strum & CPK_LATCH)
+        play_lat[trk_index(t)] ^= (uint16_t)(1u << key_place(k));
+}
+/* the keys whose action is on (the LEDs): bit k of the 27 */
+static uint32_t play_latch_keys(const track_t *t)
+{
+    uint32_t k, m = 0;
+    if (!(cpk.strum & CPK_LATCH))
+        return 0;
+    for (k = 0; k < 27u; k++)
+        if (key_black(k) && ((play_lat[trk_index(t)] >> key_place(k)) & 1u))
+            m |= 1u << k;
+    return m;
+}
 
 static void input_on(track_t *t, uint32_t note, uint32_t vel);          /* (seq.c, below) */
 static void input_off(track_t *t, uint32_t note);
@@ -430,7 +452,7 @@ static void play_note_off(track_t *t, uint32_t x)
     midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
 }
 /* the samples between a strum's notes */
-static int32_t play_strum_samples(void) { return (int32_t)((uint32_t)cpk.strum * 5u * 44100u / 1000u); }
+static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 20u * 44100u / 1000u); }
 /* once an audio block (keyboard_block): the next notes of the strums and the arps held */
 static void play_tick(void)
 {
@@ -475,7 +497,7 @@ static void play_tick(void)
  * strum: play_tick brings the rest); kb_chord[k] holds all of them, pk_* what is left to do */
 static uint32_t play_build(track_t *t, uint32_t k, uint32_t root, uint32_t vel)
 {
-    cshape_t s = play_shape(play_held());
+    cshape_t s = play_shape(play_mask(t));
     int32_t r;
     uint16_t mask;
     uint32_t n = play_chord(t, &s, root, kb_chord[k], &r, &mask), i = trk_index(t), j;

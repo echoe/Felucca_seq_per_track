@@ -1783,7 +1783,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_EVENTS) return 16u;     /* AUTOMATION: no knob is an action; OCT+ by the row (ev_oct) */
-    if (pg->graph == GR_CPK) return 16u;        /* SAVE > CHORDS: no knob is an action; OCT+ saves the pack (cpk_save) */
+    if (pg->graph == GR_CPK) return 16u;        /* SCL > CHORDS: no knob is an action; OCT+ saves the pack (cpk_save) */
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
         return 1u;                               /* PLAY / STOP (also the PLAY button) */

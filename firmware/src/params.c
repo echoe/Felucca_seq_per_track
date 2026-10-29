@@ -459,6 +459,10 @@ static const page_t PAGES[] = {
     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHRD, P_VOIC, 0xFF, 0xFF}},   /* SCL again: the chord keys (chord.c) */
+#if FELUCCA_PATBANK
+    {"CHORDS", FAM_SCL, SC_TRK, GR_CPK, {0, 1, 2, 3}},    /* 1.6.1_sequences: CHRD PLAY's chord packs: what each black key does
+                                                          * (chord.c cpk); the SCL family's last page (was SAVE's) */
+#endif
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E4, P_E5, P_E7}},   /* ANALOG only (1.5, #104): TYPE CUT RES KTR */
@@ -485,14 +489,11 @@ static const page_t PAGES[] = {
     {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, {0xFF, 0xFF, 0xFF, 0xFF}},    /* pattern loader: PAT LOAD (ui.c pat_load);
                                                                              * the tap after PRESETS (up to 1.1.5 SEQ's) */
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
-#if FELUCCA_PATBANK
-    {"CHORDS", FAM_SAVE, SC_TRK, GR_CPK, {0, 1, 2, 3}},    /* 1.6.1_sequences: CHRD PLAY's chord packs: what each black key does (chord.c cpk) */
-#endif
     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
 #if FELUCCA_PATBANK
-    {"GEN", FAM_ARP, SC_TRK, GR_GENS, {0, 1, 2, 3}},   /* 1.6_sequences: MODE GEN's DENS, CHORD, EVOLVE, SCL of the selected track (ui_input.c gen_edit) */
+    {"GEN", FAM_ARP, SC_TRK, GR_GENS, {0, 1, 2, 3}},   /* 1.6_sequences: MODE GEN's DENS, CHORD, EVOLVE, ALGO of the selected track (ui_input.c gen_edit) */
 #endif
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL

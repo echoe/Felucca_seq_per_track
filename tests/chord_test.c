@@ -24,6 +24,7 @@ static uint32_t ngated(const track_t *t)
 static void reset(void)
 {
     ui_power_on();
+    memset(play_lat, 0, sizeof play_lat);
     memset(kb_chn, 0, sizeof kb_chn); memset(mchord, 0, sizeof mchord); memset(chord_last, 0, sizeof chord_last);
     fm1_in.notes = kb_prev = 0; mo_w = mo_r = 0; usb.config = 1;
     trk[0].p[P_VOICE] = V_POLY; trk[0].p[P_SCALE] = 1; trk[0].p[P_ROOT] = 0;   /* C major, POLY */
@@ -541,6 +542,39 @@ static int play(void)
     ok &= ngated(t) == 0;                                   /* released: it stops */
     kup(key_of(1, 1)); kup(key_of(1, 10));
     bad += check("PLAY: ARP plays the chord one note at a time at the track's ARP RATE, never two at once, and stops with the key", ok);
+
+    /* LATCH: a black key pressed toggles its action on (and off), instead of being held */
+    reset(); cpk_defaults();
+    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
+    cpk.strum |= CPK_LATCH;
+    kdown(key_of(1, 0)); kup(key_of(1, 0));                  /* MIN: on, and the key is let go */
+    ok = ngated(t) == 0 && play_latch_keys(t) == 1u << key_of(1, 0);
+    kdown(w); ok &= chord_is_at(t, root, MIN); kup(w);       /* a white key: the minor chord, no key held */
+    kdown(key_of(1, 2)); kup(key_of(1, 2));                  /* 7 on as well: MIN and 7, a minor seventh */
+    kdown(w); ok &= chord_is_at(t, root, MIN7); kup(w);
+    kdown(key_of(1, 0)); kup(key_of(1, 0));                  /* MIN off again: 7 alone */
+    kdown(w); ok &= chord_is_at(t, root, DOM7); kup(w);
+    ok &= play_latch_keys(t) == 1u << key_of(1, 2);
+    kdown(key_of(1, 2)); kup(key_of(1, 2));                  /* 7 off: the major chord */
+    kdown(w); ok &= chord_is_at(t, root, MAJ); kup(w);
+    ok &= play_latch_keys(t) == 0;
+    kdown(key_of(1, 1)); kdown(w);                           /* a key HELD does not count twice, the chord is the latched ones */
+    ok &= chord_is_at(t, root, MIN7); kup(w); kup(key_of(1, 1));
+    kdown(w); ok &= chord_is_at(t, root, MIN7); kup(w);      /* (it stayed on) */
+    cpk.strum &= ~CPK_LATCH;                                 /* LATCH off: the keys are held again, nothing stays */
+    kdown(w); ok &= chord_is_at(t, root, MAJ); kup(w);
+    kdown(key_of(1, 1)); kdown(w); ok &= chord_is_at(t, root, MIN7); kup(w); kup(key_of(1, 1));
+    bad += check("PLAY LATCH: a black key pressed toggles its action on and off, no holding; off, they are held as before", ok);
+
+    reset(); cpk_defaults();                                  /* STRM and ARP latch too, and each track has its own */
+    t->p[P_CHRD] = CH_PLAY; t->p[P_VOIC] = VC_CLOSE; t->p[P_SCALE] = 0;
+    cpk.strum |= CPK_LATCH; cpk.strum = (uint8_t)((cpk.strum & CPK_LATCH) | 0u);
+    kdown(key_of(1, 9)); kup(key_of(1, 9));                  /* STRM on, speed 0: the chord at once */
+    kdown(w); run_blocks(2); ok = ngated(t) == 3u; kup(w);
+    kdown(key_of(1, 9)); kup(key_of(1, 9));
+    kdown(w); ok &= ngated(t) == 3u; kup(w);
+    ok &= play_latch_keys(&trk[1]) == 0;
+    bad += check("PLAY LATCH: STRM latches too, and the latched keys are the track's own", ok);
 
     /* other modes and keys as before */
     reset(); cpk_defaults();

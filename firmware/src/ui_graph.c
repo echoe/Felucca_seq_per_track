@@ -1897,7 +1897,7 @@ static void home_track_row(uint32_t c)
     cv_blit(3, (uint32_t)y);
 }
 #if FELUCCA_PATBANK
-/* SAVE > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
+/* SCL > CHORDS: the eleven black keys as chips (what each does, the one edited lit), and what the one edited makes of a C chord */
 static uint32_t cpks_sig;
 static void draw_cpk(void)
 {
@@ -1906,10 +1906,8 @@ static void draw_cpk(void)
     char nm[12];
     for (i = 0; i < CPK_KEYS; i++)
         sig = sig * 31u + cpk.act[i];
-    if (ui.force) {
-        draw_gaps(graph_y(), graph_h());
+    if (ui.force)                                       /* (one canvas over the whole panel: no gap fill, it flashed what the canvas drew again) */
         cpks_sig = ~sig;
-    }
     if (sig == cpks_sig)
         return;
     cpks_sig = sig;
@@ -1942,15 +1940,15 @@ static void draw_cpk(void)
         GFX_HOOK_ALIGN(0, 76, GW, 96, AL_HV, "chord preview centred");
         cv_text_in(0, 76 + CAP_IN(S, 20), GW, &AF_S, nm, T_TEXT, T_BG);
         GFX_HOOK_ALIGN(0, 100, GW, 116, AL_HV, "chord hint centred");
-        cv_text_in(0, 100 + CAP_IN(S, 16), GW, &AF_S, play_on(TSEL) ? "HOLD KEYS, PLAY A WHITE KEY" : "SCL > CHORD: SET CHRD TO PLAY", T_MID, T_BG);
+        cv_text_in(0, 100 + CAP_IN(S, 16), GW, &AF_S, !play_on(TSEL) ? "SCL > CHORD: SET CHRD TO PLAY" : (cpk.strum & CPK_LATCH) ? "TAP KEYS ON OR OFF, PLAY A WHITE KEY" : "HOLD KEYS, PLAY A WHITE KEY", T_MID, T_BG);
     }
     cv_blit((uint32_t)CARD_X(0), Y_GRAPH);
 }
 #endif
 #if FELUCCA_PATBANK
-/* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale, bright
- * when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim, with a line of text, when the
- * arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
+/* ARP > GEN: the selected track's loop as GEN makes it (seq.c gen_*): a bar per step, as high as its note in the scale (ALGO's
+ * re-voicing included), bright when it plays now (DENS), a mark above the chords (CHORD), a line under the step playing; dim,
+ * with a line of text, when the arp's MODE is not GEN. LEN (at most 32) steps are the loop; the rest are dim stubs */
 static uint32_t gens_sig;
 static void draw_gens(void)
 {
@@ -1960,16 +1958,15 @@ static void draw_gens(void)
     uint8_t iv[12];
     uint32_t i, len = (uint32_t)clamp(t->p[P_SLEN], 1, (int32_t)GEN_N), on = t->p[P_AMODE] == AM_GEN, n = gen_scale(t, iv),
              r = gen_range(n, t), dens = gen_set[song.sel % NTRK][GS_DENS], chd = gen_set[song.sel % NTRK][GS_CHORD],
-             ph = on && song.playing && t->arp_idx != 0xFFFFFFFFu ? t->arp_idx % len : 0xFFu, sig = on + 3u * len + 7u * dens + 13u * chd + 29u * r;
+             alg = gen_set[song.sel % NTRK][GS_ALGO],
+             ph = on && song.playing && t->arp_idx != 0xFFFFFFFFu ? t->arp_idx % len : 0xFFu, sig = on + 3u * len + 7u * dens + 13u * chd + 29u * r + 41u * alg;
     if (!g->ready)
         sig += 101u;
     for (i = 0; i < GEN_N; i++)
         sig = sig * 31u + g->deg[i] + 7u * (g->thr[i] < dens) + 11u * (g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u));
     sig = sig * 31u + ph;
-    if (ui.force) {
-        draw_gaps(graph_y(), graph_h());
+    if (ui.force)                                       /* (one canvas over the whole panel: no gap fill, it flashed what the canvas drew again) */
         gens_sig = ~sig;
-    }
     if (sig == gens_sig)
         return;
     gens_sig = sig;
@@ -1982,7 +1979,9 @@ static void draw_gens(void)
             cv_rrect(x, 116, 5, 2, 1, i < len ? T_RAISE : T_SURF, T_BG);
             continue;
         }
-        h = 8 + (int32_t)(g->deg[i] < r ? g->deg[i] : r - 1u) * 92 / (int32_t)(r > 1u ? r - 1u : 1u);
+        uint32_t dd = g->deg[i] < r ? g->deg[i] : r - 1u, av;
+        dd = gen_algo(g, t, iv, n, r, i, dd, &av);      /* (as it plays: ALGO's re-voicing) */
+        h = 8 + (int32_t)dd * 92 / (int32_t)(r > 1u ? r - 1u : 1u);
         y = 118 - h;
         cv_rrect(x, y, 5, h, 1, fill, T_BG);
         if (chd && g->cthr[i] < (chd * 2u > 127u ? 127u : chd * 2u))
