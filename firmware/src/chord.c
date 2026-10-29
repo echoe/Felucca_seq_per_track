@@ -250,7 +250,7 @@ static uint32_t strum_led_key(const track_t *t)
  *   quality  MIN DIM AUG SUS2 SUS4 POW      the triad (MAJ when none)
  *   seventh  6 7 MAJ7, and MIN7 DIM7 M7B5 MMAJ7 (a quality with it), 9 MAJ9 MIN9 (with the ninth)
  *   extra    +9 +11 +13 (added tones), INV (the lowest tone up an octave), BASS (the root an octave down)
- *   how      STRUM: the notes one after the other, (cpk.strum & CPK_SPEED) x 5 ms apart, all held until the key is let go
+ *   how      STRUM: the notes one after the other, (cpk.strum & CPK_SPEED) x 20 ms apart, all held until the key is let go
  *            ARP: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go
  * Up to CHORD_MAX (six) tones: past that the fifth goes first, then the highest. VOIC voices it as it does the other chord modes. */
 enum { CA_NONE, CA_MIN, CA_DIM, CA_AUG, CA_SUS2, CA_SUS4, CA_POW, CA_6, CA_7, CA_MAJ7, CA_MIN7, CA_DIM7, CA_M7B5, CA_MMAJ7,
@@ -259,7 +259,7 @@ static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SU
     "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
 #define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
 #define CPK_USER 4u                                     /* chord packs of the user's */
-#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 5 ms, 0..200 (the low seven bits) */
+#define CPK_STRUM_MAX 100u                               /* cpk.strum: x 20 ms, 0..2000 (the low seven bits) */
 #define CPK_LATCH 0x80u                                 /* cpk.strum's top bit: the black keys toggle their action on and off instead of being held */
 #define CPK_SPEED(p) ((uint32_t)(p)->strum & 0x7Fu)
 typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
@@ -452,7 +452,7 @@ static void play_note_off(track_t *t, uint32_t x)
     midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
 }
 /* the samples between a strum's notes */
-static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 5u * 44100u / 1000u); }
+static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 20u * 44100u / 1000u); }
 /* once an audio block (keyboard_block): the next notes of the strums and the arps held */
 static void play_tick(void)
 {
