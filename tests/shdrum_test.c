@@ -217,6 +217,106 @@ int main(int argc, char **argv)
         host_tracks_init(); host_preset(&trk[0], 0, 0); chk("other engines keep TP", track_desc(&trk[0], SHP_FOLD) == &TP[SHP_FOLD]);
     }
 
+    /* 6. DRUM KIT SH */
+    {
+        static const uint8_t LN[8] = {36, 38, 39, 42, 46, 45, 37, 56};      /* the lanes' own notes (eng_drum.c DRUM_LANE_NOTE) */
+        uint32_t kp, l, k, badk = 0;
+        stat_t a, b;
+        chk("DK_SH is the last kit and the SH presets use it", DK_SH == DK_COUNT - 1 && ENG_DRUM.edit[0].max == DK_SH &&
+            strcmp(ENG_DRUM.edit[0].names[DK_SH], "SH") == 0 && ENG_DRUM.npresets == 7 && ENG_DRUM.presets[4].e[0] == DK_SH);
+        for (l = 0; l < 8; l++) {       /* recipe l == SHDRUM preset l */
+            int16_t p[P_COUNT] = {0}; shd_vp_t q;
+            uint32_t i;
+            for (i = 0; i < 8; i++) p[P_E0 + i] = ENG_SHDRUM.presets[l].e[i];
+            for (i = 0; i < SHP_N; i++) p[SHP_AATK + i] = SHD_PRESET_X[l][i];
+            shd_vp_load(&q, p);
+            if (memcmp(&q, &SHD_REC[l].q, sizeof q)) { uint32_t j; printf("  recipe %u differs:", l); for (j = 0; j < sizeof q; j++) if (((uint8_t *)&q)[j] != ((const uint8_t *)&SHD_REC[l].q)[j]) printf(" [%u]%d/%d", j, ((uint8_t *)&q)[j], ((const uint8_t *)&SHD_REC[l].q)[j]); printf("\n"); fails++; }
+        }
+        for (kp = 4; kp < 7; kp++) {
+            double tot = 0;
+            for (l = 0; l < 8; l++) {
+                host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem);
+                host_preset(&trk[0], ENGI_DRUM, kp);
+                a = hit(LN[l], NMAXB, 0);
+                host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem);
+                host_preset(&trk[0], ENGI_DRUM, kp);
+                b = hit(LN[l], NMAXB, 0);
+                tot += a.rms;
+                if (a.peak >= 32767 * 1.5 || a.rms < 50 || a.dc > 0.02 * a.peak + 5 || a.live_end || a.hash != b.hash)
+                    printf("  kit %u lane %u: peak %.0f rms %.0f dc %.1f end %d rep %d\n", kp, l, a.peak, a.rms, a.dc, !a.live_end, a.hash == b.hash), badk++;
+                if (kp == 4) printf("shdrum_test: SH KIT lane %u (%s): peak %6.0f rms %6.0f t30 %6.1f ms\n", l, N_SHK_SND[SHK_KITS[0][l]], a.peak, a.rms, a.t30);
+            }
+        }
+        chk("SH kits: every lane audible, bounded, ends, repeatable", !badk);
+        /* a lane's sound is its own: changing the KICK's sound changes the kick, not the snare */
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
+        a = hit(36, 300, 0); b = hit(38, 300, 0);
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
+        trk[0].p[SKP_SND0] = 9;
+        { stat_t a2 = hit(36, 300, 0), b2 = hit(38, 300, 0);
+          chk("KICK's sound changes the kick", a2.hash != a.hash);
+          chk("... and not the snare (apart from the noise seed)", fabs(b2.rms - b.rms) < 0.02 * b.rms + 1); }
+        /* a lane's TUNE: +12 semitones doubles the kick's pitch (measured late, past the sweep) */
+        { int16_t *bf = malloc(2 * 30000); uint32_t i, z0 = 0, z1 = 0;
+          host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 9 - 9 + 4);
+          trk[0].p[SKP_SND0] = 9;                                          /* DEEP: a long sub */
+          (void)hit(36, 700, bf);
+          for (i = 4001; i < 8000; i++) z0 += (bf[i] < 0) != (bf[i - 1] < 0);
+          trk[0].p[SKP_TUN0] = 12; (void)hit(36, 700, bf);
+          for (i = 4001; i < 8000; i++) z1 += (bf[i] < 0) != (bf[i - 1] < 0);
+          printf("shdrum_test: SH lane TUNE +12: %u -> %u zero crossings\n", z0, z1);
+          chk("lane TUNE +12 doubles the pitch", z1 > 1.8 * z0 && z1 < 2.2 * z0); free(bf); }
+        /* the kit's TUNE knob (E1) and DECY knob act too */
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
+        a = hit(38, 600, 0); trk[0].p[P_E3] = 100; b = hit(38, 600, 0);
+        chk("DECY longer -> the snare rings longer", b.t30 > a.t30);
+        /* the closed hat ends the open hat: an open hat then a closed one is quieter later than the open one alone */
+        { int32_t o[CTL]; double e1 = 0, e2 = 0; uint32_t i, kk;
+          for (k = 0; k < 2; k++) {
+              host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
+              trk_note_on(&trk[0], 46, 100);
+              for (i = 0; i < 20; i++) track_render(&trk[0], o, CTL);
+              if (k) trk_note_on(&trk[0], 42, 20);                          /* a soft closed hat (the choke), then 150 ms on */
+              for (i = 0; i < 100; i++) track_render(&trk[0], o, CTL);
+              for (i = 0; i < 20; i++) { track_render(&trk[0], o, CTL); for (kk = 0; kk < CTL; kk++) { if (k) e2 += (double)o[kk] * o[kk]; else e1 += (double)o[kk] * o[kk]; } }
+          }
+          printf("shdrum_test: choke: open hat alone %.3g, after a closed hat %.3g\n", e1, e2);
+          chk("a closed hat chokes the open one", e2 < 0.25 * e1); }
+        /* a muted lane is silent (and rings on), the lane LEVEL scales it */
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
+        a = hit(36, 200, 0);
+        drum_mute[0] = 1; b = hit(36, 200, 0); drum_mute[0] = 0;
+        chk("a muted lane is silent", b.peak == 0 && a.peak > 100);
+        trk[0].p[P_LN0] = 64; b = hit(36, 200, 0);
+        chk("lane LEVEL 64 is quieter", b.rms < 0.4 * a.rms && b.rms > 0.05 * a.rms);
+        /* KIT STD is not touched by the SH slots */
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 0);
+        a = hit(36, 100, 0);
+        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 0);
+        for (k = SKP_SND0; k < SKP_END; k++) trk[0].p[k] = 7;
+        b = hit(36, 100, 0);
+        chk("KIT STD ignores the SH slots", a.hash == b.hash);
+        /* corners: every SH slot and knob at its extremes, every lane note (and GM notes 35..81), bounded */
+        { uint32_t c, n, badc = 0;
+          for (c = 0; c < 48; c++) {
+              host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4 + c % 3);
+              for (k = 0; k < 8; k++) { trk[0].p[SKP_SND0 + k] = (int16_t)((c * 7 + k * 3) % 20); trk[0].p[SKP_TUN0 + k] = (c >> (k % 4)) & 1 ? 12 : -12; }
+              trk[0].p[SKP_DPT] = c & 1 ? 63 : -64; trk[0].p[SKP_SWP] = c & 2 ? 24 : -24; trk[0].p[SKP_CRS] = c & 4 ? 127 : 0; trk[0].p[SKP_FLD] = c & 8 ? 127 : 0;
+              trk[0].p[P_E1] = c & 16 ? 0 : 127; trk[0].p[P_E2] = c & 32 ? 0 : 127; trk[0].p[P_E3] = c & 1 ? 0 : 127; trk[0].p[P_E4] = c & 2 ? 0 : 127; trk[0].p[P_E7] = c & 4 ? 127 : 0;
+              for (n = 35; n <= 81; n += 2) { stat_t s = hit(n, 900, 0); if (s.peak > 70000 || s.dc > 4000) { if (!badc) printf("  corner c %u note %u: peak %.0f dc %.0f end %u\n", c, n, s.peak, s.dc, !s.live_end); badc++; } }
+          }
+          chk("SH corners: bounded, no DC runaway (long DECY tails may outlast the window)", !badc); }
+        /* descriptors */
+        for (k = SKP_SND0; k < SKP_END; k++) {
+            const param_desc_t *d = param_desc_of(ENGI_DRUM, k);
+            chk("SKD desc ok", d && d != &TP[k] && d->def >= d->min && d->def <= d->max);
+        }
+        host_tracks_init(); host_preset(&trk[0], ENGI_DRUM, 4);
+        chk("DRUM track_desc reaches the SH labels", track_desc(&trk[0], SKP_SND0) == &SKD[0]);
+        chk("the SH presets set the lanes' sounds", trk[0].p[SKP_SND0] == 0 && trk[0].p[SKP_SND0 + 7] == 14);
+        host_preset(&trk[0], ENGI_DRUM, 6); chk("SH DEEP", trk[0].p[SKP_SND0] == 9 && trk[0].p[SKP_SND0 + 4] == 15);
+    }
+
     /* 5. demos */
     if (dir) {
         static int16_t buf[44100 * 2];
@@ -234,6 +334,38 @@ int main(int argc, char **argv)
                 fclose(f);
             }
         }
+    }
+    if (dir) {   /* the three SH kits: a two-bar loop at 120 bpm on the lanes' GM notes */
+        static const char *KN[4] = {"kit", "punch", "deep", "stdref"};
+        static const uint8_t K_[16] = {1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0}, S_[16] = {0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1},
+                             H_[16] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1}, O_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0},
+                             T_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}, R_[16] = {0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0},
+                             C_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0};
+        static int16_t lp[44100 * 5];
+        uint32_t kp2, st, nb = (uint32_t)(4.0 * FS / CTL), i, k, sstep = (uint32_t)(FS / 8 / CTL) + 1;   /* a 16th at 120 bpm: 5512 samples = 172 blocks */
+        for (kp2 = 0; kp2 < 4; kp2++) {
+            int32_t o[CTL]; char path[512]; FILE *f; uint32_t n = 0;
+            host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, kp2 == 3 ? 0 : 4 + kp2);
+            memset(lp, 0, sizeof lp);
+            for (i = 0; i < nb; i++) {
+                if (i % 172 == 0) {
+                    st = (i / 172) % 16;
+                    if (K_[st]) trk_note_on(&trk[0], 36, 120);
+                    if (S_[st]) trk_note_on(&trk[0], 38, 110);
+                    if (C_[st]) trk_note_on(&trk[0], 39, 90);
+                    if (H_[st]) trk_note_on(&trk[0], 42, st % 4 ? 70 : 100);
+                    if (O_[st]) trk_note_on(&trk[0], 46, 90);
+                    if (T_[st]) trk_note_on(&trk[0], 45, 110);
+                    if (R_[st]) trk_note_on(&trk[0], 37, 90);
+                }
+                track_render(&trk[0], o, CTL);
+                for (k = 0; k < CTL; k++) lp[n++] = (int16_t)clamp(o[k], -32768, 32767);
+            }
+            snprintf(path, sizeof path, "%s/shkit_%s_loop.wav", dir, KN[kp2]);
+            f = fopen(path, "wb");
+            if (f) { wav_hdr(f, n); for (k = 0; k < n; k++) wav_put(f, lp[k], lp[k]); fclose(f); }
+        }
+        (void)sstep;
     }
     printf("shdrum_test: %s\n", fails ? "FAIL" : "ok");
     return fails != 0;

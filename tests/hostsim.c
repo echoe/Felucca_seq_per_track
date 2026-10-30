@@ -107,6 +107,8 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
 #if FELUCCA_SHDRUM
     if (e == ENGI_SHDRUM)                         /* SHDRUM: the preset's layers and effects (ui.c apply_preset_to) */
         shd_load(t, pi);
+    if (e == ENGI_DRUM)                           /* DRUM: the kit's lane sounds (KIT SH; ui.c apply_preset_to) */
+        shk_load(t, pi);
 #endif
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)

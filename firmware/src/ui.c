@@ -437,6 +437,8 @@ static int page_visible(uint32_t i)
 #if FELUCCA_SHDRUM
     if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'H' && PAGES[i].title[2] == ' ')   /* SHDRUM's pages (params.c) */
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SHDRUM;
+    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'K' && PAGES[i].title[2] == ' ')   /* DRUM KIT SH's pages (params.c) */
+        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_DRUM && TSEL->p[P_E0] == DK_SH;
 #endif
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
@@ -1395,6 +1397,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
 #if FELUCCA_SHDRUM
     if (e == &ENG_SHDRUM)                             /* SHDRUM: the preset's layers and effects (eng_shdrum.c) */
         shd_load(t, pi);
+    if (e == &ENG_DRUM)                               /* DRUM: the kit's lane sounds (KIT SH, eng_drum.c) */
+        shk_load(t, pi);
 #endif
     load_end(t);
 }
@@ -1463,6 +1467,8 @@ static void clean_engine_of(track_t *t)
 #if FELUCCA_SHDRUM
     if (ei == ENGI_SHDRUM)                            /* SHDRUM: its layers and effects at their defaults */
         shd_defaults(t);
+    if (ei == ENGI_DRUM)                              /* DRUM: KIT SH's lane sounds at their defaults */
+        shk_defaults(t);
 #endif
     if (ei == ENGI_FM6) {                             /* the init voice as the track's own patch (SLOT: OWN) */
         uint8_t v[FP_SIZE + 1u];

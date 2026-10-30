@@ -529,6 +529,9 @@ static int test_sound_loads(void)
     apply_preset_to(t, 0);
     track_defaults_steps(t);
     project_load(0);
+    for (uint32_t kk = P_FM1_ATK; kk <= P_FM4_LEVEL; kk++)   /* (the slots a legacy sound stored are fit to DRUM's KIT SH ranges on load: unused with any
+                                                              * other kit; a SH preset sets them) */
+        before.p[kk] = t->p[kk];
     bad += check("saved SAMPLE PERC project: a DRUM track (its kit), the rest of the sound and every step kept",
                  t->eng_req == ENGI_DRUM && t->preset == 0u && perc_kit(t) &&
                  !memcmp(t->p, before.p, P_E0 * sizeof t->p[0]) && !memcmp(t->step, before.step, sizeof t->step));

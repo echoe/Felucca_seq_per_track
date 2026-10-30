@@ -373,6 +373,9 @@ int main(void)
         q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
         q.t[2].engine = ENGI_PHYS;
         q.t[3].engine = ENGI_PHYS;
+        for (i = 0; i < 4u; i++)                        /* (an engine change resets DRUM KIT SH's slots, ui.c apply_preset_to) */
+            for (uint32_t kk = P_FM1_ATK; kk <= P_FM4_LEVEL; kk++)
+                q.t[i].p[kk] = TP[kk].def;
         for (i = 0; i < 8u; i++) {
             q.t[0].p[P_E0 + i] = E0[i];
             q.t[1].p[P_E0 + i] = E1[i];

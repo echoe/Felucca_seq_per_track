@@ -235,6 +235,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 #if FELUCCA_SHDRUM
     if (id >= SHP_AATK && id < SHP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_SHDRUM)   /* SHDRUM's slots (eng_shdrum.c) */
         return shd_xdesc(id);
+    if (id >= SKP_SND0 && id < SKP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM)     /* DRUM KIT SH's (eng_drum.c) */
+        return shk_xdesc(id);
 #endif
     if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
         return ins_desc(t->p[P_ITYPE], id - P_IA);
@@ -250,6 +252,8 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 #if FELUCCA_SHDRUM
     if (e == ENGI_SHDRUM && id >= SHP_AATK && id < SHP_END)   /* SHDRUM's slots among the FM operator ids (eng_shdrum.c) */
         return shd_xdesc(id);
+    if (e == ENGI_DRUM && id >= SKP_SND0 && id < SKP_END)     /* DRUM KIT SH's (eng_drum.c) */
+        return shk_xdesc(id);
 #endif
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
@@ -486,6 +490,12 @@ static const page_t PAGES[] = {
     {"SH LAYER B", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_BATK, SHP_BDEC, SHP_BLVL, 0xFF}},
     {"SH FX 1", FAM_EDIT, SC_TRACK, GR_NONE, {P_E7, SHP_CLIK, SHP_FOLD, SHP_CRSH}},
     {"SH FX 2", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_FTYP, SHP_CUT, SHP_RES, SHP_FENV}},
+    /* DRUM with KIT SH only (eng_drum.c; ui.c page_visible: the titles that start with "SK "): the lanes' sounds and tuning */
+    {"SK SND", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0, SKP_SND0 + 1, SKP_SND0 + 2, SKP_SND0 + 3}},
+    {"SK SND 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0 + 4, SKP_SND0 + 5, SKP_SND0 + 6, SKP_SND0 + 7}},
+    {"SK TUNE", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0, SKP_TUN0 + 1, SKP_TUN0 + 2, SKP_TUN0 + 3}},
+    {"SK TUNE 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0 + 4, SKP_TUN0 + 5, SKP_TUN0 + 6, SKP_TUN0 + 7}},
+    {"SK KIT", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_DPT, SKP_SWP, SKP_CRS, SKP_FLD}},
 #endif
     {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */

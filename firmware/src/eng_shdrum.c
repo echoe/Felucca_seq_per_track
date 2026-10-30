@@ -52,9 +52,7 @@
  * layers' envelopes (Q24, SHD_AT in bit 30 while the attack runs), s[2] the pitch envelope, s[3] the noise state, s[4] /
  * s[5] the filter, s[6] the click's envelope, s[7] the crusher's held sample. No engine memory (engine_t.mem). */
 
-enum { SHW_SIN, SHW_TRI, SHW_SAW, SHW_SQR, SHW_NOIS, SHW_COUNT };
-enum { SHM_MIX, SHM_FM, SHM_RING, SHM_COUNT };
-enum { SHF_OFF, SHF_LP, SHF_BP, SHF_HP, SHF_COUNT };
+#include "shd_voice.c"
 
 /* the track's FM operator slots (core.h P_FM1_ATK .. P_FM4_LEVEL, 20 consecutive ids) as SHDRUM names them */
 enum {
@@ -85,71 +83,52 @@ static const param_desc_t *shd_xdesc(uint32_t id)
     return id >= SHP_AATK && id < SHP_AATK + SHP_N ? &SHD_X[id - SHP_AATK] : 0;
 }
 
-#define SHD_AT 0x40000000          /* in s[0], s[1]: the attack is running (the value is in the low 25 bits) */
-#define SHD_EMASK 0x01FFFFFF
-#define SHD_DEAD 200               /* a layer is gone when (env >> 10) * LEVEL falls under this (about -80 dB) */
 
-static int32_t shd_env(int32_t *st, uint32_t atk, uint32_t dec)   /* one control tick; the value after it (Q24) */
+/* the track's parameters as a sound: the clamped E and slot values */
+static void shd_vp_load(shd_vp_t *q, const int16_t *p)
 {
-    int32_t s = *st, e = s & SHD_EMASK;
-    if (s & SHD_AT) {
-        e += (int32_t)ENV_LIN[atk & 127u];
-        if (e >= (1 << 24)) {
-            e = 1 << 24;
-            *st = e;
-        } else {
-            *st = SHD_AT | e;
-        }
-    } else {
-        e -= mulq16(e, ENV_EXP[dec & 127u]);
-        *st = e;
-    }
-    return e;
-}
-
-static inline int32_t shd_wave(uint32_t w, uint32_t ph, uint32_t inc, int32_t *nst)
-{
-    switch (w) {
-    case SHW_SIN: return sine_i(ph);
-    case SHW_TRI: return osc_tri(ph);
-    case SHW_SAW: return osc_saw(ph, inc);
-    case SHW_SQR: return osc_pulse(ph, inc, 0x80000000u);
-    default: return (int32_t)(noise32(nst) >> 16) - 32768;
-    }
+    q->wa = (uint8_t)clamp(p[P_E0], 0, SHW_COUNT - 1);
+    q->wb = (uint8_t)clamp(p[P_E1], 0, SHW_COUNT - 1);
+    q->xm = (uint8_t)clamp(p[P_E2], 0, SHM_COUNT - 1);
+    q->depth = (uint8_t)clamp(p[P_E3], 0, 127);
+    q->tunb = (int8_t)clamp(p[P_E4], -24, 24);
+    q->swep = (int8_t)clamp(p[P_E5], -24, 48);
+    q->swpt = (uint8_t)clamp(p[P_E6], 0, 127);
+    q->drv = (uint8_t)clamp(p[P_E7], 0, 127);
+    q->aatk = (uint8_t)clamp(p[SHP_AATK], 0, 127);
+    q->adec = (uint8_t)clamp(p[SHP_ADEC], 0, 127);
+    q->alvl = (uint8_t)clamp(p[SHP_ALVL], 0, 127);
+    q->batk = (uint8_t)clamp(p[SHP_BATK], 0, 127);
+    q->bdec = (uint8_t)clamp(p[SHP_BDEC], 0, 127);
+    q->blvl = (uint8_t)clamp(p[SHP_BLVL], 0, 127);
+    q->clik = (uint8_t)clamp(p[SHP_CLIK], 0, 127);
+    q->fold = (uint8_t)clamp(p[SHP_FOLD], 0, 127);
+    q->crsh = (uint8_t)clamp(p[SHP_CRSH], 0, 127);
+    q->ftyp = (uint8_t)clamp(p[SHP_FTYP], 0, SHF_COUNT - 1);
+    q->cut = (uint8_t)clamp(p[SHP_CUT], 0, 127);
+    q->res = (uint8_t)clamp(p[SHP_RES], 0, 127);
+    q->fenv = (int8_t)clamp(p[SHP_FENV], -64, 63);
 }
 
 static void shd_note_on(track_t *t, voice_t *v)
 {
-    v->ph[0] = v->ph[1] = v->ph[2] = 0;
-    v->s[0] = SHD_AT;
-    v->s[1] = SHD_AT;
-    v->s[2] = 1 << 24;                                    /* the pitch envelope at its top */
-    v->s[3] = (int32_t)((v->age * 2654435761u) | 1u);     /* a noise seed per hit (xorshift: never 0) */
-    v->s[4] = v->s[5] = 0;
-    v->s[6] = t->p[SHP_CLIK] ? 1 << 24 : 0;
-    v->s[7] = 0;
+    shd_vp_t q;
+    shd_vp_load(&q, t->p);
+    shd_start(v->ph, v->s, &q, v->age);
     v->env_out = v->vel * 258;                            /* the hit starts at its level (as DRUM) */
     v->env = 1 << 24;
-}
-
-/* is any layer (or the click) still audible? */
-static int shd_live(const track_t *t, const voice_t *v)
-{
-    const int16_t *p = t->p;
-    if ((v->s[0] | v->s[1]) & SHD_AT || v->s[6] > (1 << 14))
-        return 1;
-    return ((v->s[0] & SHD_EMASK) >> 10) * clamp(p[SHP_ALVL], 0, 127) > SHD_DEAD ||
-           ((v->s[1] & SHD_EMASK) >> 10) * clamp(p[SHP_BLVL], 0, 127) > SHD_DEAD;
 }
 
 /* the hit is the envelope (as DRUM: drum_amp): the ADSR is held at full so a key-off never ends it; a voice whose
  * layers have died away ends here */
 static int32_t shd_amp(track_t *t, voice_t *v, int32_t adsr)
 {
+    shd_vp_t q;
     (void)adsr;
     if (!v->active)
         return 0;
-    if (!shd_live(t, v)) {
+    shd_vp_load(&q, t->p);
+    if (!shd_alive(&q, v->s)) {
         v->active = v->gate = 0;
         v->stage = 0;
         v->env = 0;
@@ -161,95 +140,15 @@ static int32_t shd_amp(track_t *t, voice_t *v, int32_t adsr)
 
 static void shd_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    const int16_t *p = t->p;
-    uint32_t wa = (uint32_t)clamp(p[P_E0], 0, SHW_COUNT - 1), wb = (uint32_t)clamp(p[P_E1], 0, SHW_COUNT - 1);
-    uint32_t xm = (uint32_t)clamp(p[P_E2], 0, SHM_COUNT - 1), ft = (uint32_t)clamp(p[SHP_FTYP], 0, SHF_COUNT - 1);
-    int32_t depth = clamp(p[P_E3], 0, 127), drv = clamp(p[P_E7], 0, 127);
-    int32_t clk = clamp(p[SHP_CLIK], 0, 127), fold = clamp(p[SHP_FOLD], 0, 127), crsh = clamp(p[SHP_CRSH], 0, 127);
-    int32_t gA = clamp(p[SHP_ALVL], 0, 127) * 258, gB = clamp(p[SHP_BLVL], 0, 127) * 258;
-    int32_t eA0 = v->s[0] & SHD_EMASK, eB0 = v->s[1] & SHD_EMASK, pe0 = v->s[2], eA1, eB1, pe1;
-    int32_t sw = clamp(p[P_E5], -24, 48) * 16, tb = clamp(p[P_E4], -24, 24) * 16;
-    int32_t pA0, pA1, nst = v->s[3], ck = v->s[6], held = v->s[7], ic1 = v->s[4], ic2 = v->s[5];
-    int32_t md = depth * 258, gr, fg = 4096, g = 0, mk = 0, fk = 0, sh = 0;
-    uint32_t phA = v->ph[0], phB = v->ph[1], cnt = v->ph[2], iA, iB, hold = 1, dd = (uint32_t)depth * 2628u;
-    int32_t sA, sB, i;
-    tsvf_t flt;
+    shd_vp_t q;
+    int32_t y[CTL];
+    uint32_t i;
     if (n > CTL)
         n = CTL;
-    eA1 = shd_env(&v->s[0], (uint32_t)clamp(p[SHP_AATK], 0, 127), (uint32_t)clamp(p[SHP_ADEC], 0, 127));
-    eB1 = shd_env(&v->s[1], (uint32_t)clamp(p[SHP_BATK], 0, 127), (uint32_t)clamp(p[SHP_BDEC], 0, 127));
-    pe1 = pe0 - mulq16(pe0, ENV_EXP[clamp(p[P_E6], 0, 127)]);
-    v->s[2] = pe1;
-    /* pitch: the key (the host's pitch: bend, TUNE, LFO and the matrix's PITCH apply) plus the sweep; the phase
-     * increments run linearly across the block so a fast sweep does not step */
-    pA0 = clamp(m->pitch16 + ((sw * (pe0 >> 9)) >> 15), 0, 2047);
-    pA1 = clamp(m->pitch16 + ((sw * (pe1 >> 9)) >> 15), 0, 2047);
-    iA = pitch_inc((uint32_t)pA0);
-    iB = pitch_inc((uint32_t)clamp(pA0 + tb, 0, 2047));
-    sA = ((int32_t)(pitch_inc((uint32_t)pA1) - iA)) >> 5;
-    sB = ((int32_t)(pitch_inc((uint32_t)clamp(pA1 + tb, 0, 2047)) - iB)) >> 5;
-    gr = (gA * gB) >> 14;                                 /* the product's gain: 1.0 with both layers at 100 % */
-    gr = gr > 32767 ? 32767 : gr;
-    if (fold)
-        fg = 4096 + fold * 3 * 4096 / 127;                /* x1..x4 (Q12) */
-    if (drv > 0) {                                        /* x1..x4 into the soft clip, the level kept (DRUM's DRV) */
-        g = 4096 + drv * 3 * 4096 / 127;
-        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
-    }
-    if (crsh) {
-        sh = crsh * 12 / 127;
-        hold = 1u + (uint32_t)(crsh >> 5);
-    }
-    if (ft) {                                             /* the cutoff follows A's envelope by FENV (Q8 index steps) */
-        int32_t cut = (clamp(p[SHP_CUT], 0, 127) << 8) + ((clamp(p[SHP_FENV], -64, 63) * (eA1 >> 9)) >> 7);
-        tsvf_coef(&flt, cut, clamp(p[SHP_RES], 0, 127));
-        fk = ANALOG_K(clamp(p[SHP_RES], 0, 127));
-    }
-    for (i = 0; i < (int32_t)n; i++) {
-        int32_t eA = (eA0 + (((eA1 - eA0) * i) >> 5)) >> 9, eB = (eB0 + (((eB1 - eB0) * i) >> 5)) >> 9;   /* Q15 */
-        int32_t bb = (shd_wave(wb, phB, iB, &nst) * eB) >> 15, aa, s;
-        uint32_t pa = phA;
-        if (xm == SHM_FM)
-            pa += (uint32_t)bb * dd;                      /* B's enveloped wave into A's phase */
-        aa = (shd_wave(wa, pa, iA, &nst) * eA) >> 15;
-        s = ((aa * gA) >> 15) + ((bb * gB) >> 15);
-        if (xm == SHM_RING)                               /* DPTH: the two layers added -> their product */
-            s = (((s >> 1) * (32767 - md)) >> 14) + ((((((aa * bb) >> 15) * gr) >> 15) * md) >> 15);
-        phA += iA;
-        phB += iB;
-        iA += (uint32_t)sA;
-        iB += (uint32_t)sB;
-        if (clk) {                                        /* CLIK: noise, a 3 ms decay, ahead of the effects */
-            s += (((((int32_t)(noise32(&nst) >> 16) - 32768) * (ck >> 9)) >> 15) * (clk * 258)) >> 15;
-            ck -= ck >> 7;
-        }
-        if (fold) {                                       /* FOLD: scale up, reflect back into full scale */
-            int32_t z = (((s * fg) >> 12) + 32768) & 0x1FFFF;
-            z = z > 65535 ? 131071 - z : z;
-            s = z - 32768;
-        }
-        if (g)                                            /* DRV */
-            s = (softclip((s * g) >> 12) * mk) >> 15;
-        if (crsh) {                                       /* CRSH: sample hold, bits dropped */
-            if (!cnt)
-                held = ((s + ((1 << sh) >> 1)) >> sh) << sh;     /* rounded: no DC from the dropped bits */
-            cnt = cnt + 1u >= hold ? 0u : cnt + 1u;
-            s = held;
-        }
-        if (ft) {                                         /* the filter (analog_tap: LP 0 / BP 1 / HP 2 of the SVF) */
-            int32_t y = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft - 1u) << 1;
-            s = y;
-        }
-        out[i] += voice_amp(soft_knee(s, 24000), m, (uint32_t)i) << 1;
-    }
-    v->ph[0] = phA;
-    v->ph[1] = phB;
-    v->ph[2] = cnt;
-    v->s[3] = nst;
-    v->s[4] = ic1;
-    v->s[5] = ic2;
-    v->s[6] = ck;
-    v->s[7] = held;
+    shd_vp_load(&q, t->p);
+    shd_run(&q, v->ph, v->s, m->pitch16, y, n);
+    for (i = 0; i < n; i++)
+        out[i] += voice_amp(soft_knee(y[i], 24000), m, i) << 1;
 }
 
 /* ------------------------------------------------------------ presets --- */

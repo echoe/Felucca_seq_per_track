@@ -31,11 +31,17 @@ static const char *const PRESET_CAT[16] = {
     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
+#if FELUCCA_SHDRUM
+    "DDDDDDD",                   /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT; SH KIT, SH PUNCH, SH DEEP */
+#else
     "DDDD",                      /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
+#endif
     "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
+#if FELUCCA_SHDRUM
     "DDDDDDDD",                  /* 14 SHDRUM: SH KICK, SH SNARE, SH HAT, SH OPEN HAT, SH TOM, SH CLAP, SH BELL, SH ZAP */
+#endif
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
 {
