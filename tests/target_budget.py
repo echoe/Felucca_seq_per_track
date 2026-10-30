@@ -22,7 +22,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "dv_rim_run", "dv_bell_run", "dv_cym_run", "dv_out", "dv_metal_mix",
          "slicer_track",
          "slice_render", "slc_rev",                          # SLICE (eng_slice.c): the render, the reverse windows
-         "fm1_alnk0_irq", "fm1_timer5_irq",               # the audio ISR; TIMER5: the key / LED scan (hal/fm1_input.h)
+         "fm1_alnk0_irq", "fm1_timer5_irq",               # the audio ISR; TIMER5: the key / LED scan (bsp/boards/fm1/fm1_input.h)
          "mix_part",                                        # a part's block (fx.c), on either core since the second
          "uac_tap48",                                       # the USB audio input at 48 kHz: the 44.1 -> 48 resampler (usb.c)
          "click_render",                                    # the metronome's click (click.c), while it sounds
@@ -36,7 +36,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
 # they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
 OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558,
             "uac_tap48": 504,           # (absent from a FELUCCA_UAC_48K=0 or FELUCCA_UAC=0 build)
-            "mix_part": 2800}           # (FELUCCA_CPU2=1, the default since 1.6.1: out of line, either core may run it)
+            "mix_part": 3549}           # (bsp/chip/libc.c: the word-wise memset / memcpy, longer loops, faster; FELUCCA_CPU2=1, the default since 1.6.1: out of line, either core may run it)
 # a FELUCCA_CPU2=0 build (no mix_part: inlined into the audio ISR, as 1.6) has the one-core ISR, checked against this
 ONE_CORE = {"fm1_alnk0_irq": 37502}
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not

@@ -29,6 +29,12 @@ noise/0 d6c922dc5b4c4957 37500 WIND
 noise/1 cbd07d9df1150e6d 35222 RAIN
 noise/2 c362d36a40c503af 44738 ARCADE
 noise/3 2a45855cf5135a9c 32177 METAL
+phase/0 063b7a42f75e4482 98296 BRASS
+phase/1 85eaa970507c377e 111432 ORGAN
+phase/2 bedb6e3c0293dd80 85192 STRING
+phase/3 f2bdb066bb67f957 48872 RESO
+phase/4 6947c82009ec3762 47014 BELL
+phase/5 6fdc0bd587a312a4 117796 WIRE
 analog/0/ftype1 ef577d05f58184ca 33554 SAW LEAD
 analog/0/ftype2 15d10b87624f7bc4 58054 SAW LEAD
 analog/1/ftype1 5bf5f8ba51566fa7 25228 SOFT PAD
@@ -101,6 +107,14 @@ noise/e0=0 64d5968efacbe48f 30619
 noise/e0=1 e0b857388ddf8325 0
 noise/e0=2 b51672888910a9ec 70830
 noise/e0=3 e5ab531ed03f2d24 42687
+phase/e0=0 98271c9f6cc42c73 98326
+phase/e0=1 dd69987ba2cfb743 117244
+phase/e0=2 473c4b93820c9ab1 120096
+phase/e0=3 f0da7a43ec26a7f9 112314
+phase/e0=4 b494ad1d96efe225 119008
+phase/e0=5 3a6251fb92f2e441 50066
+phase/e0=6 4b62bc43e76cfce1 53394
+phase/e0=7 9e45cd4aa679aeaf 64350
 lofi/wave=0 bec14a2a2b2d3896 70663
 lofi/wave=1 3da02e7e8e4db299 49665
 lofi/wave=2 c1a25ddee0003472 43532

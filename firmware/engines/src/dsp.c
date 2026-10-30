@@ -5,6 +5,60 @@
  * oscillator at amp = 1.0 (Q15 32767) contributes VOICE_FS. */
 #define VOICE_FS 24000           /* per-voice level: one voice peaks near -6 dBFS before the master */
 
+/* ---------------------------------------------------------- the rate --- */
+/* FS is a build-time choice: the tables header (tools/gen_engine_tables.py --fs RATE) defines it, 44100 by
+ * default. The engines were designed at 44.1 kHz; what they time in samples or blocks is moved to FS here,
+ * at compile time (no cost a sample). At 44100 every macro below is the constant it replaced: the output
+ * is bit for bit what it always was. */
+#if !defined(FS) || !defined(CTL)
+#error "dsp.c: the tables header (FS, CTL, ...) comes first"
+#endif
+#if FS < 32000 || FS > 192000
+#error "dsp.c: FS is supported from 32000 to 192000"
+#endif
+#if FS != 44100 && !defined(FE_RATE_CONSTS)
+#error "dsp.c: FS is not 44100: make the tables header with tools/gen_engine_tables.py --fs FS (the rate constants)"
+#endif
+/* FE_OCT: octaves from 44.1 kHz to FS, rounded (0 at 32 .. 62.3 kHz, 1 to 124.7 kHz, 2 above): a one-pole
+ * or a block-rate smoother written as a shift (x += (y - x) >> s) keeps its corner with s + FE_OCT */
+#if FS < 62367
+#define FE_OCT 0
+#elif FS < 124734
+#define FE_OCT 1
+#else
+#define FE_OCT 2
+#endif
+#if FS == 44100
+#define FE_T(n) (n)              /* a count of samples (or blocks) at 44.1 kHz -> the same time at FS */
+#define FE_HOLD(n) (n)           /* the same for a sample hold, 1 (none) stays 1 */
+#else
+#define FE_RATE_Q16 ((uint32_t)((65536ull * FS + 22050u) / 44100u))   /* FS / 44100, Q16 */
+#define FE_T(n) ((int32_t)(((uint32_t)(n) * FE_RATE_Q16 + 32768u) >> 16))
+#define FE_HOLD(n) ((n) <= 1 ? (n) : FE_T(n))
+#endif
+/* the per-sample / per-block constants that need more than a shift: their 44.1 kHz values (the generator
+ * writes them for any other rate; `gen_engine_tables.py --check src/dsp.c` checks these against it) */
+#ifndef FE_RATE_CONSTS
+#define FE_NOISE_PINK0_P 32690   /* NOISE: the pink poles (Kellet), Q15, and their input gains */
+#define FE_NOISE_PINK0_G 3245
+#define FE_NOISE_PINK1_P 31555
+#define FE_NOISE_PINK1_G 9716
+#define FE_NOISE_PINK2_P 18678
+#define FE_NOISE_PINK2_G 17247
+#define FE_NOISE_BROWN_P 32580   /* the brown pole, its gain */
+#define FE_NOISE_BROWN_G 3480
+#define FE_WHEEL_PDEC_SLOW 65457 /* WHEEL percussion decay a block, Q16: tau 0.6 s */
+#define FE_WHEEL_PDEC_FAST 65219 /* tau 0.15 s */
+#define FE_WHEEL_CLKDEC 24576    /* WHEEL key click decay a block, Q15: tau ~2.5 ms */
+#define fe_pole(a) (a)           /* a one-pole coefficient (Q15) designed at 44.1 kHz, at FS */
+#else
+static inline int32_t fe_pole(int32_t a)                /* a: 0..32767 */
+{
+    int32_t i = a >> 8;
+    return FE_POLE[i] + (((FE_POLE[i + 1] - FE_POLE[i]) * (a & 255)) >> 8);
+}
+#endif
+
 static inline int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }
 /* a * k / 65536 without 64-bit: a up to 2^31, k Q16 */
 static inline int32_t mulq16(int32_t a, uint32_t k)
@@ -12,6 +66,11 @@ static inline int32_t mulq16(int32_t a, uint32_t k)
     return (int32_t)(((a >> 16) * (int32_t)k) + (int32_t)(((uint32_t)(a & 0xFFFF) * k) >> 16));
 }
 static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* a * b and x << n wrapped to 32 bits in unsigned arithmetic (defined in C; a signed overflow or a left shift
+ * of a negative value is not), back to int32_t modulo 2^32 (GCC, Clang): the bits a two's-complement multiply
+ * or shift gives */
+static inline int32_t mul_wrap(int32_t a, int32_t b) { return (int32_t)((uint32_t)a * (uint32_t)b); }
+static inline int32_t shl(int32_t x, uint32_t n) { return (int32_t)((uint32_t)x << n); }
 
 /* sine, linearly interpolated between the 1024 table points (plain lookup: THD -55 dB) */
 static inline int32_t sine_i(uint32_t ph)

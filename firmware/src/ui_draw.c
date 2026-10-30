@@ -1158,7 +1158,7 @@ static void draw_columns(void)
         draw_column(0, "PACK", pn, "", VAL(0u), (int32_t)cpk_sel * 1000 / (int32_t)(CPK_N - 1u), ICON_SCALE);
         draw_column(1, "KEY", BK[cpk_key], "", VAL(1u), (int32_t)cpk_key * 1000 / (int32_t)(CPK_KEYS - 1u), ICON_PITCH);
         draw_column(2, "ACT", CA_NAME[cpk.act[cpk_key]], "", VAL(2u), (int32_t)cpk.act[cpk_key] * 1000 / (int32_t)(CA_N - 1u), ICON_ORDER);
-        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 20);
+        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 5);
         draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)CPK_SPEED(&cpk) * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
         return;
     }

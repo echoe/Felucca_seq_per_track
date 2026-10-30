@@ -52,7 +52,7 @@ SDK_SHA256 = {
 PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/felucca.c)
 # FELUCCA_CPU2 (firmware/src/felucca.c), unset or 1, the default (1.6.1): the second core is built in, its entry and
-# stacks (firmware/hal/fm1_cpu1.S) linked and its waiting loop (.c1_text) checked; MENU > SYSTEM > 2ND CORE starts it
+# stacks (firmware/bsp/chip/fm1_cpu1.S) linked and its waiting loop (.c1_text) checked; MENU > SYSTEM > 2ND CORE starts it
 # (OFF by default: one core, as 1.6). FELUCCA_CPU2=0: none of it is built (1.6's one-core code and RAM)
 CPU2 = os.environ.get("FELUCCA_CPU2") != "0"
 
@@ -149,10 +149,20 @@ def ldr_wrap(image):
     return ldr_head(crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
 
 
+# The hardware layer: firmware/hal (Felucca's own, while it moves) first, then felucca-bsp (the submodule
+# firmware/bsp, MPL-2.0): its chip layer and the FM-1's board code. A file in hal/ wins over the BSP's.
+HAL_DIRS = (FW / "hal", FW / "bsp" / "chip", FW / "bsp" / "boards" / "fm1")
+HAL_INC = [f"-I{d.relative_to(SRC)}" for d in HAL_DIRS]
+
+
+def hal_file(name):
+    return next(d / name for d in HAL_DIRS if (d / name).exists())
+
+
 def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
+    flags = [*CFLAGS, *HAL_INC, "-Ifirmware/src"]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
     elf = LDR / "loader.elf"
@@ -191,7 +201,7 @@ def ld_regions():
 
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
+    flags = [*CFLAGS, *HAL_INC, "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_PATBANK", "FELUCCA_FM4",
                  "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST", "FELUCCA_CPU2"):
@@ -211,10 +221,10 @@ def build_app():
               FW / "src" / "felucca.c", "-o", OUT / "felucca.ll") if size else
              ("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", OUT / "felucca.o"))
     (OUT / "fm1_cpu1.o").unlink(missing_ok=True)
-    tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
-           ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
-           ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-           *([("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o")] if CPU2 else []),
+    tc_all(("cc", "-c", hal_file("crt0.S"), "-o", OUT / "crt0.o"),
+           ("cc", "-c", hal_file("fm1_vec.S"), "-o", OUT / "fm1_vec.o"),
+           ("cc", "-c", hal_file("fm1_isr.S"), "-o", OUT / "fm1_isr.o"),
+           *([("cc", "-c", hal_file("fm1_cpu1.S"), "-o", OUT / "fm1_cpu1.o")] if CPU2 else []),
            cmain)
     if size:
         subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "felucca.ll", OUT / "felucca_size.ll"],
@@ -224,24 +234,21 @@ def build_app():
     elf = OUT / "felucca.elf"
     tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
        *([OUT / "fm1_cpu1.o"] if CPU2 else []), OUT / "felucca.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin"):
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin"):   # (c1text.bin: before the BSP, its own section)
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
-                               *([("common/bin/objcopy", "-O", "binary", "-j", ".c1_text", elf, OUT / "c1text.bin")]
-                                 if CPU2 else []),
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
-                               ("common/bin/objdump", "-d", "-j", ".ram_text", *(("-j", ".c1_text") if CPU2 else ()),
-                                elf))
+                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
     (OUT / "felucca.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
     img = bytearray((OUT / "text.bin").read_bytes())
-    # .ram_text, .c1_text and .data follow .text at their load addresses; crt0 / main copy them by words
-    for sect, lname in (("ramtext.bin", "_rt_load"), ("c1text.bin", "_c1_load"), ("data.bin", "_data_load")):
+    # .ram_text (with .c1_text in it) and .data follow .text at their load addresses; main copies them by words
+    for sect, lname in (("ramtext.bin", "_rt_load"), ("data.bin", "_data_load")):
         load = symv(lname)
         if load % 4:
             raise SystemExit(f"{lname} {load:#x} is not word aligned")
@@ -256,6 +263,11 @@ def build_app():
     return bytes(img), syms, dis, rt
 
 
+def symv_in(syms, name):
+    m = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
+    return int(m.group(1), 16) if m else 0
+
+
 def check(img, syms, dis, rt):
     errors, notes = [], []
     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
@@ -263,17 +275,17 @@ def check(img, syms, dis, rt):
         errors.append(f"_start is not at {APP_XIP:#x}")
     if img[:4] != bytes.fromhex("04818000"):
         errors.append(f"image starts with {img[:4].hex()}, not the entry stub")
-    # RAM code runs with the flash off: no calls into XIP. The second core's waiting loop (.c1_text) calls only its
-    # job, through the pointer core 0 handed it (a register: "call rN")
-    sect, rt_calls, c1_calls, c1_insns, rt_insns = None, [], [], 0, 0
+    # RAM code runs with the flash off: no calls into XIP. The second core's waiting loop (.c1_text, linked into
+    # .ram_text between _c1_start and _c1_end: one PC-limit window) calls only its job, through the pointer core 0
+    # handed it (a register: "call rN")
+    rt_calls, c1_calls, c1_insns, rt_insns = [], [], 0, 0
+    c1_lo = symv_in(syms, "_c1_start")
+    c1_hi = symv_in(syms, "_c1_end")
     for ln in rt.splitlines():
-        mm = re.match(r"^Disassembly of section (\S+):", ln)
-        if mm:
-            sect = mm.group(1)
+        mm = LINE.match(ln)
+        if not mm:
             continue
-        if not LINE.match(ln):
-            continue
-        if sect == ".c1_text":
+        if c1_lo <= int(mm.group(1), 16) < c1_hi:
             c1_insns += 1
             if re.search(r"\bcall\b", ln) and not re.search(r"\bcall\s+r\d+\b", ln):
                 c1_calls.append(ln.strip())
@@ -285,7 +297,7 @@ def check(img, syms, dis, rt):
         errors.append(f".ram_text contains calls: {rt_calls[:3]}")
     else:
         notes.append(f".ram_text: {rt_insns} insns, no calls")
-    c1_syms = re.findall(r"\s(fm1_c1_\w+|_c1_ustack\w*|_c1_sstack\w*)$", syms, re.M)
+    c1_syms = re.findall(r"\s(fm1_cpu1_(?!stop)\w+)$", syms, re.M)
     if not CPU2:                    # FELUCCA_CPU2=0: nothing of the second core (no stack, waiting loop, mailbox)
         if c1_insns or c1_syms:
             errors.append(f"FELUCCA_CPU2=0 build holds second-core code or data: {sorted(set(c1_syms))[:4]}")
@@ -294,7 +306,7 @@ def check(img, syms, dis, rt):
     elif c1_calls:
         errors.append(f".c1_text calls other than its job: {c1_calls[:3]}")
     elif not c1_insns:
-        errors.append(".c1_text: the second core's waiting loop is missing (firmware/hal/fm1_cpu1.h fm1_c1_main)")
+        errors.append(".c1_text: the second core's waiting loop is missing (firmware/bsp/chip/fm1_cpu1.h fm1_cpu1_main)")
     else:
         notes.append(f".c1_text: {c1_insns} insns, only its job called")
     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
@@ -346,7 +358,7 @@ def mmio_check():
         s = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), s, flags=re.S)
         return re.sub(r"//[^\n]*", "", s)
     defs = {}
-    for h in sorted((FW / "hal").glob("*.h")):
+    for h in sorted(h for d in HAL_DIRS for h in d.glob("*.h")):
         for m in re.finditer(r"^#define\s+(\w+)(?:\([^)]*\))?\s+(.*)$", strip(h.read_text()), re.M):
             defs[m.group(1)] = m.group(2)
     regs = {n for n, b in defs.items() if re.search(r"\bvolatile\b", b)}
@@ -388,6 +400,9 @@ def main():
     if not (FW / "engines" / "src" / "felucca_engine.h").exists():
         raise SystemExit("firmware/engines is empty: the Felucca-Engines submodule "
                          "(git submodule update --init, or clone with --recurse-submodules)")
+    if not (FW / "bsp" / "chip" / "fm1_cc.h").exists():
+        raise SystemExit("firmware/bsp is empty: the felucca-bsp submodule "
+                         "(git submodule update --init, or clone with --recurse-submodules)")
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -428,8 +443,11 @@ def main():
                                                 for n, b in ((name, pkg), (app, bytes(img)))))
         for f in sorted((SRC / "LICENSES").glob("*.txt")):
             shutil.copy(f, rel / "LICENSES" / f.name)
-        if not (rel / "LICENSES" / "MIT-Felucca-Engines.txt").exists():     # ANALOG LOFI TRIO WHEEL NOISE (engines/)
+        if not (rel / "LICENSES" / "MIT-Felucca-Engines.txt").exists():     # ANALOG LOFI TRIO WHEEL NOISE PHASE (engines/)
             raise SystemExit("release: LICENSES/MIT-Felucca-Engines.txt is missing")
+        if not (rel / "LICENSES" / "MPL-2.0-felucca-bsp.txt").exists():     # the hardware layer (bsp/)
+            raise SystemExit("release: LICENSES/MPL-2.0-felucca-bsp.txt is missing")
+        shutil.copy(FW / "bsp" / "NOTICE", rel / "LICENSES" / "NOTICE-felucca-bsp.txt")   # its authors and origins
         for doc in ("LICENSE", "LICENSING.md"):
             shutil.copy(SRC / doc, rel / doc)
         if att.exists():

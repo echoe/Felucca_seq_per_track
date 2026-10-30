@@ -902,7 +902,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), breathing = can be pressed (*br: dark .. ~60 % and
- * back, ~1.1 s, hal/fm1_input.h fm1_led_breath; was a hard 250 ms blink, #119), dark = nothing there */
+ * back, ~1.1 s, bsp/boards/fm1/fm1_input.h fm1_led_breath; was a hard 250 ms blink, #119), dark = nothing there */
 static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo || ((perf_solo >> t) & 1u)); }
 static int rec_clearable(void) { return !seq_is_empty(TSEL) || motion_count(TSEL) != 0u; }
 static uint32_t layer_leds(uint32_t *br)
@@ -1027,7 +1027,8 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
         GFX_HOOK_ALIGN(x, 0, x + LC_W, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
         cv_text_in(x, t + 14 - AF_S_CAP_Y, LC_W, &AF_S, name, ink, fill);
     } else if (name && *name) {                           /* a key's row: the icon and the name on its middle */
-        if (!note && icon < ICON_COUNT) {                  /* (the EDIT layer: the engine's icon instead of the key) */
+        if (!note && icon < ICON_COUNT && text_w(&AF_S, name) <= LC_W - 3 - 12 - 3 - 3) {   /* (the EDIT layer: the engine's icon instead of
+                                                              * the key; not beside a name too wide for both: SHDRUM) */
             GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
             cv_icon_in(x + 3, y, 0, h, 12, icon, ink, fill);
             GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");

@@ -1,0 +1,1169 @@
+diff --git a/firmware/src/category.c b/firmware/src/category.c
+index cdc0d33..3369ba5 100644
+--- a/firmware/src/category.c
++++ b/firmware/src/category.c
+@@ -31,11 +31,17 @@ static const char *const PRESET_CAT[16] = {
+     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
+     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
+                                   * STRING, HARP */
++#if FELUCCA_SHDRUM
++    "DDDDDDD",                   /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT; SH KIT, SH PUNCH, SH DEEP */
++#else
+     "DDDD",                      /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
++#endif
+     "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
+     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
+     "DD",                        /* 13 SLICE: CHOP, STUTTER */
++#if FELUCCA_SHDRUM
+     "DDDDDDDD",                  /* 14 SHDRUM: SH KICK, SH SNARE, SH HAT, SH OPEN HAT, SH TOM, SH CLAP, SH BELL, SH ZAP */
++#endif
+ };
+ static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
+ {
+diff --git a/firmware/src/chord.c b/firmware/src/chord.c
+index 6bba4b3..1dd4584 100644
+--- a/firmware/src/chord.c
++++ b/firmware/src/chord.c
+@@ -250,7 +250,7 @@ static uint32_t strum_led_key(const track_t *t)
+  *   quality  MIN DIM AUG SUS2 SUS4 POW      the triad (MAJ when none)
+  *   seventh  6 7 MAJ7, and MIN7 DIM7 M7B5 MMAJ7 (a quality with it), 9 MAJ9 MIN9 (with the ninth)
+  *   extra    +9 +11 +13 (added tones), INV (the lowest tone up an octave), BASS (the root an octave down)
+- *   how      STRUM: the notes one after the other, (cpk.strum & CPK_SPEED) x 20 ms apart, all held until the key is let go
++ *   how      STRUM: the notes one after the other, (cpk.strum & CPK_SPEED) x 5 ms apart, all held until the key is let go
+  *            ARP: one note at a time, round the chord, at the track's ARP RATE and GATE, until the key is let go
+  * Up to CHORD_MAX (six) tones: past that the fifth goes first, then the highest. VOIC voices it as it does the other chord modes. */
+ enum { CA_NONE, CA_MIN, CA_DIM, CA_AUG, CA_SUS2, CA_SUS4, CA_POW, CA_6, CA_7, CA_MAJ7, CA_MIN7, CA_DIM7, CA_M7B5, CA_MMAJ7,
+@@ -259,7 +259,7 @@ static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SU
+     "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
+ #define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
+ #define CPK_USER 4u                                     /* chord packs of the user's */
+-#define CPK_STRUM_MAX 100u                               /* cpk.strum: x 20 ms, 0..2000 (the low seven bits) */
++#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 5 ms, 0..200 (the low seven bits) */
+ #define CPK_LATCH 0x80u                                 /* cpk.strum's top bit: the black keys toggle their action on and off instead of being held */
+ #define CPK_SPEED(p) ((uint32_t)(p)->strum & 0x7Fu)
+ typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
+@@ -452,7 +452,7 @@ static void play_note_off(track_t *t, uint32_t x)
+     midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+ }
+ /* the samples between a strum's notes */
+-static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 20u * 44100u / 1000u); }
++static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 5u * 44100u / 1000u); }
+ /* once an audio block (keyboard_block): the next notes of the strums and the arps held */
+ static void play_tick(void)
+ {
+diff --git a/firmware/src/eng_drum.c b/firmware/src/eng_drum.c
+index eefafea..605a304 100644
+--- a/firmware/src/eng_drum.c
++++ b/firmware/src/eng_drum.c
+@@ -35,15 +35,79 @@
+  * State: 8 lanes per part in the part's engine memory (engines.c eng_mem; drum_kit_of: the parameters, coefficients, voice and metal
+  * source of each lane). */
+ #include "drum_voice.c"
++#if FELUCCA_SHDRUM
++#include "shd_voice.c"          /* KIT SH: the SHDRUM voice on the lanes (shd_voice.c; see the end of the header above) */
++#endif
+ 
+ /* 1.5.6 (Discussion #216): DEEP TIGHT PERC (9..11), kits put together from the five's pieces (drum_voice.c DV_KIT),
+  * appended. Firmware before 1.5.6 clamps 9..11 to 8 (77) when it loads them (param_fit) */
+-enum { DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_COUNT };   /* (stored values) */
++enum {
++    DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC,
++#if FELUCCA_SHDRUM
++    DK_SH,                       /* SH: every lane plays a sound of the SHDRUM library, picked per lane (shd_voice.c; below) */
++#endif
++    DK_COUNT                     /* (stored values) */
++};
+ /* the kit a stored KIT value plays: HAND CYM H+CYM (retired after 1.0.4) -> 66 (a conga on TOM), 10 (a cymbal on
+  * BELL), 77 (claves on RIM, a cymbal on BELL) */
+ static const uint8_t DK_PLAYS[DK_COUNT] = {DK_STD, DK_66, DK_10, DK_77, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP,
+-                                           DK_TIGHT, DK_PERC};
++                                           DK_TIGHT, DK_PERC
++#if FELUCCA_SHDRUM
++                                           , DK_SH
++#endif
++};
+ static uint32_t drum_kit_plays(int32_t v) { return DK_PLAYS[clamp(v, 0, DK_COUNT - 1)]; }
++
++#if FELUCCA_SHDRUM
++/* ---------------------------------------------------------------- KIT SH --- */
++/* With KIT SH each lane plays a sound of the SHDRUM library (shd_voice.c SHD_REC: KICK SNARE HAT OPEN TOM CLAP BELL ZAP KIK2 DEEP
++ * SNR2 RIM HATP TOM2 COWBL CYM CONGA CLAVE PERC NOISE), picked per lane, so a kit is put together: SK SND / SK SND 2 pick the
++ * eight lanes' sounds (the knob shows the sound's name), SK TUNE / SK TUNE 2 their tuning (+-12 semitones), SK KIT the whole
++ * kit's extra DPTH (the FM / ring depth), SWEP (the pitch sweep), CRSH and FOLD. The kit's own knobs act on every lane as
++ * on the other kits: TUNE (+-12 semitones), TONE (the FM / ring depth, a filter's cutoff), DECY (the layers' decays), SNAP (the
++ * click), DRV; ACC and KICK do nothing here. Everything else is DRUM's: the 8 lanes and their GM notes and grid, the lane
++ * LEVELs, the black-key mutes, a closed hat ends the open one, one voice per lane.
++ * The picks and tunings are the track's FM operator slots (P_FM1_ATK .., eng_shdrum.c says why: the ids no engine reads), under
++ * these labels (shk_xdesc: params.c track_desc / param_desc_of); the SK pages show with KIT SH only (ui.c page_visible).
++ * A SH lane's voice is the SHDRUM voice in the lane's memory (the 48 bytes of the metal source, unused by a SH lane): the
++ * lane's role is DVT_SHK, a marker above the drum types. */
++#define DVT_SHK 0xF0u
++enum {
++    SKP_SND0 = P_FM1_ATK,        /* 8 lanes' sounds */
++    SKP_TUN0 = P_FM1_ATK + 8,    /* 8 lanes' tuning */
++    SKP_DPT = P_FM1_ATK + 16,    /* the kit's DPTH, SWEP, CRSH, FOLD */
++    SKP_SWP, SKP_CRS, SKP_FLD,
++    SKP_END
++};
++_Static_assert(SKP_END == P_FM4_LEVEL + 1, "KIT SH: its parameters are the 20 FM operator slots");
++#define SKP_N (SKP_END - SKP_SND0)
++/* the sound each lane has by default: KICK SNARE CLAP HAT HAT OPEN TOM RIM COWBL */
++static const uint8_t SHK_KITS[3][8] = {
++    {0, 1, 5, 2, 3, 4, 11, 14},          /* SH KIT */
++    {8, 10, 5, 2, 3, 13, 11, 14},        /* SH PUNCH */
++    {9, 1, 5, 12, 15, 4, 16, 7},         /* SH DEEP */
++};
++static const param_desc_t SKD[SKP_N] = {
++    {"KICK", F_ENUM, 0, 19, 0, N_SHK_SND, 0}, {"SNARE", F_ENUM, 0, 19, 1, N_SHK_SND, 0}, {"CLAP", F_ENUM, 0, 19, 5, N_SHK_SND, 0},
++    {"HATCL", F_ENUM, 0, 19, 2, N_SHK_SND, 0}, {"HATOP", F_ENUM, 0, 19, 3, N_SHK_SND, 0}, {"TOM", F_ENUM, 0, 19, 4, N_SHK_SND, 0},
++    {"RIM", F_ENUM, 0, 19, 11, N_SHK_SND, 0}, {"BELL", F_ENUM, 0, 19, 14, N_SHK_SND, 0},
++    {"KICK", F_SEMI, -12, 12, 0, 0, 0}, {"SNARE", F_SEMI, -12, 12, 0, 0, 0}, {"CLAP", F_SEMI, -12, 12, 0, 0, 0},
++    {"HATCL", F_SEMI, -12, 12, 0, 0, 0}, {"HATOP", F_SEMI, -12, 12, 0, 0, 0}, {"TOM", F_SEMI, -12, 12, 0, 0, 0},
++    {"RIM", F_SEMI, -12, 12, 0, 0, 0}, {"BELL", F_SEMI, -12, 12, 0, 0, 0},
++    {"DPTH", F_BIPCT, -64, 63, 0, 0, 0}, {"SWEP", F_SEMI, -24, 24, 0, 0, 0}, {"CRSH", F_PCT, 0, 127, 0, 0, 0},
++    {"FOLD", F_PCT, 0, 127, 0, 0, 0},
++};
++_Static_assert(sizeof N_SHK_SND / sizeof N_SHK_SND[0] == 20, "KIT SH: the sound enum covers the library");
++static const param_desc_t *shk_xdesc(uint32_t id) { return id >= SKP_SND0 && id < SKP_END ? &SKD[id - SKP_SND0] : 0; }
++/* a DRUM preset's picks (the SH presets' own, the others the first kit's) and the defaults of a clean DRUM (ui.c) */
++static void shk_load(track_t *t, uint32_t pi)
++{
++    uint32_t i, k = pi >= 4u && pi - 4u < NELEM(SHK_KITS) ? pi - 4u : 0u;
++    for (i = 0; i < SKP_N; i++)
++        t->p[SKP_SND0 + i] = i < 8u ? SHK_KITS[k][i] : SKD[i].def;
++}
++static void shk_defaults(track_t *t) { shk_load(t, 0); }
++#endif
+ /* the model kits' pieces where a lane plays another than its own (the lane's name): 1 TOM -> CONGA, 2 RIM -> CLAVE,
+  * 4 BELL -> CYM */
+ static const uint8_t DK_SWAP[DV_NKIT] = {0, 4, 1, 0, 2 | 4, 4, 0, 1 | 2};
+@@ -55,7 +119,14 @@ typedef struct {
+     dv_param_t key;              /* the parameters the coefficients were set up with */
+     dv_coef_t c;
+     dv_voice_t v;
++#if FELUCCA_SHDRUM
++    union {
++        dv_metal_t mb;
++        shk_state_t sh;          /* KIT SH: the lane's SHDRUM voice (role DVT_SHK) */
++    };
++#else
+     dv_metal_t mb;
++#endif
+     uint8_t owner;               /* the voice playing the lane: index + 1, 0 = none */
+     uint8_t role;                /* the drum struck (DVT_*) */
+     int8_t st;                   /* its semitones from the designed pitch (the GM map) */
+@@ -63,6 +134,9 @@ typedef struct {
+ } drum_lane_t;
+ 
+ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
++#if FELUCCA_SHDRUM
++_Static_assert(sizeof(shk_state_t) <= sizeof(dv_metal_t), "a SH lane's state lives in the metal source's memory");
++#endif
+ /* 1.4.1: each part's lanes muted (bit l: lane l), the EDIT layer's black keys 1..8 (ui_layer.c EQA_DRUM): a channel
+  * mute. The lane plays on as always (hits, keys, MIDI: its voice, the CPU, the choke) and drum_render drops its output,
+  * so unmuted it sounds as if it never was. Performance state: not saved, not recorded, no undo; a sound load into the
+@@ -70,7 +144,11 @@ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
+ static uint8_t drum_mute[NPART];
+ 
+ /* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */
+-static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"};
++static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"
++#if FELUCCA_SHDRUM
++                                         , "SH"
++#endif
++};
+ static const char *const N_DRUM_KICK[] = {"PUNCH", "ROUND"};
+ 
+ /* General MIDI notes 35..81 -> the drum (DVT_*; DVT_PUNCH: the kick KICK picks) and semitones from its
+@@ -92,6 +170,10 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
+     uint32_t n = note >= 35u && note <= 81u ? note : 36u + (note + 120u - 36u) % 12u, t = (uint32_t)DRUM_GM[n - 35u][0];
+     uint32_t kit = drum_kit_plays(p[P_E0]);           /* STD, the model kits */
+     *st = DRUM_GM[n - 35u][1];
++#if FELUCCA_SHDRUM
++    if (kit == DK_SH)                                 /* the lane's sound (its pitch: st from the sound's note) */
++        return DVT_SHK;
++#endif
+     if (kit >= DK_80)
+         return DV_KTYPE(kit - DK_80 + 1u, DV_TYPE_LANE[t]);
+     return t == DVT_PUNCH && p[P_E6] > 0 ? DVT_ROUND : t;
+@@ -114,7 +196,7 @@ static uint32_t drum_lane(uint32_t note)
+ static uint32_t drum_swaps(const track_t *t)
+ {
+     uint32_t kit = drum_kit_plays(t->p[P_E0]);
+-    return kit >= DK_80 ? DK_SWAP[kit - DK_80] : 0u;
++    return kit >= DK_80 && kit <= DK_PERC ? DK_SWAP[kit - DK_80] : 0u;
+ }
+ 
+ /* the lane's name as the track's KIT plays it (5 characters at most) */
+@@ -222,6 +304,27 @@ static void drum_note_on(track_t *t, voice_t *v)
+     if (L->owner == i + 1u)                              /* this voice played another lane: it stops there */
+         L->owner = 0;
+     L = &K[lane];
++#if FELUCCA_SHDRUM
++    if (role == DVT_SHK) {                               /* KIT SH: the lane's SHDRUM voice, from the top */
++        shd_vp_t q = SHD_REC[clamp(t->p[SKP_SND0 + lane], 0, (int32_t)SHD_NREC - 1)].q;
++        if (L->role != DVT_SHK) {                        /* (another kit's drum was here) */
++            memset(&L->sh, 0, sizeof L->sh);
++            L->role = DVT_SHK;
++        }
++        q.clik = 127;                                    /* (the click's envelope starts; its level is the render's) */
++        shd_start(L->sh.ph, L->sh.s, &q, v->age);
++        L->sh.live = 1;
++        L->sh.choke = 0;
++        L->st = (int8_t)st;
++        L->owner = (uint8_t)(i + 1u);
++        v->s[0] = (int32_t)lane;
++        v->env_out = v->vel * 258;
++        v->env = 1 << 24;
++        if (lane == DV_HATC && K[DV_HATO].role == DVT_SHK)   /* a closed hat chokes the open one */
++            K[DV_HATO].sh.choke = 1;
++        return;
++    }
++#endif
+     if (L->role != role || L->v.type != dv_run_type(role)) {   /* another drum on this lane: from rest */
+         dv_init(&L->v, role);
+         L->key.type = 0xFF;
+@@ -247,7 +350,11 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
+     (void)adsr;
+     if (!v->active)                                      /* (taken for another part: env_tick ended it) */
+         return 0;
++#if FELUCCA_SHDRUM
++    if (L && L->role == DVT_SHK ? !L->sh.live : (!L || (!L->v.live && !L->v.trig))) {
++#else
+     if (!L || (!L->v.live && !L->v.trig)) {
++#endif
+         v->active = v->gate = 0;
+         v->stage = 0;
+         v->env = 0;
+@@ -257,6 +364,45 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
+     return 32767;
+ }
+ 
++#if FELUCCA_SHDRUM
++/* one block of a SH lane: its sound, moved by the kit's knobs and the lane's tuning (see KIT SH above) */
++static void shk_render(track_t *t, drum_lane_t *L, int32_t *out, uint32_t n, const vmod_t *m, uint32_t lane)
++{
++    const int16_t *p = t->p;
++    const shd_recipe_t *r = &SHD_REC[clamp(p[SKP_SND0 + lane], 0, (int32_t)SHD_NREC - 1)];
++    shd_vp_t q = r->q;
++    int32_t y[CTL], d = p[P_E3] - 64, pitch;
++    uint32_t i;
++    if (n > CTL)
++        n = CTL;
++    q.adec = (uint8_t)clamp(q.adec + (d >> 2), 0, 127);                /* DECY: the layers' decays (+-16 steps) */
++    q.bdec = (uint8_t)clamp(q.bdec + (d >> 2), 0, 127);
++    d = p[P_E2] - 64;                                                    /* TONE: the FM / ring depth, a filter's cutoff */
++    q.depth = (uint8_t)clamp(q.depth + d + p[SKP_DPT], 0, 127);
++    if (q.ftyp)
++        q.cut = (uint8_t)clamp(q.cut + d, 0, 127);
++    q.clik = (uint8_t)clamp(q.clik + (p[P_E4] - 64) * 2, 0, 127);      /* SNAP */
++    q.drv = (uint8_t)clamp(q.drv + p[P_E7], 0, 127);                   /* DRV */
++    q.swep = (int8_t)clamp(q.swep + p[SKP_SWP], -24, 48);
++    q.crsh = (uint8_t)clamp(q.crsh + p[SKP_CRS], 0, 127);
++    q.fold = (uint8_t)clamp(q.fold + p[SKP_FLD], 0, 127);
++    pitch = clamp(((int32_t)r->base + L->st + clamp(p[SKP_TUN0 + lane], -12, 12)) * 16 + (p[P_E1] - 64) * 3, 0, 2047);
++    if (L->sh.choke) {                                                   /* a closed hat ends the open: both layers fade fast */
++        L->sh.s[0] = (L->sh.s[0] & SHD_AT) | (int32_t)(((uint32_t)(L->sh.s[0] & SHD_EMASK) * 3u) >> 2);
++        L->sh.s[1] = (L->sh.s[1] & SHD_AT) | (int32_t)(((uint32_t)(L->sh.s[1] & SHD_EMASK) * 3u) >> 2);
++        L->sh.s[6] = 0;
++    }
++    shd_run(&q, L->sh.ph, L->sh.s, pitch, y, n);
++    if (!q.clik)
++        L->sh.s[6] = 0;                                                  /* (the click's envelope only runs with it) */
++    L->sh.live = (uint8_t)shd_alive(&q, L->sh.s);
++    if ((drum_mute[(uint32_t)(t - trk) % NPART] >> lane) & 1u)
++        return;                                                          /* (a muted lane rings on unheard) */
++    for (i = 0; i < n; i++)
++        out[i] += voice_amp(soft_knee(y[i], 24000), m, i) << 1;
++}
++#endif
++
+ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+ {
+     const int16_t *p = t->p;
+@@ -277,6 +423,12 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
+     }
+     if (n > CTL)
+         n = CTL;
++#if FELUCCA_SHDRUM
++    if (L->role == DVT_SHK) {                            /* KIT SH */
++        shk_render(t, L, out, n, m, (uint32_t)v->s[0] & (DV_NLANE - 1u));
++        return;
++    }
++#endif
+     r = L->role;
+     dv_default(&k, r);                                   /* the knobs move every lane from its design (64) */
+     k.decay = (uint8_t)clamp(k.decay + p[P_E3] - 64, 0, 127);
+@@ -322,6 +474,12 @@ static const preset_t DRUM_PRESETS[] = {
+     {"DEEP KIT", {DK_DEEP, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 28), PAT(12)},
+     {"TIGHT KIT", {DK_TIGHT, 64, 64, 56, 64, 100, 0, 16}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 8), PAT(12)},
+     {"PERC KIT", {DK_PERC, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
++#if FELUCCA_SHDRUM
++    /* the SHDRUM kits (KIT SH; shk_load: each one's lanes' sounds) */
++    {"SH KIT", {DK_SH, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
++    {"SH PUNCH", {DK_SH, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 12), PAT(12)},
++    {"SH DEEP", {DK_SH, 64, 64, 64, 64, 100, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 28), PAT(12)},
++#endif
+ };
+ 
+ static const engine_t ENG_DRUM = {
+diff --git a/firmware/src/eng_shdrum.c b/firmware/src/eng_shdrum.c
+index 2767c75..84c594d 100644
+--- a/firmware/src/eng_shdrum.c
++++ b/firmware/src/eng_shdrum.c
+@@ -52,9 +52,7 @@
+  * layers' envelopes (Q24, SHD_AT in bit 30 while the attack runs), s[2] the pitch envelope, s[3] the noise state, s[4] /
+  * s[5] the filter, s[6] the click's envelope, s[7] the crusher's held sample. No engine memory (engine_t.mem). */
+ 
+-enum { SHW_SIN, SHW_TRI, SHW_SAW, SHW_SQR, SHW_NOIS, SHW_COUNT };
+-enum { SHM_MIX, SHM_FM, SHM_RING, SHM_COUNT };
+-enum { SHF_OFF, SHF_LP, SHF_BP, SHF_HP, SHF_COUNT };
++#include "shd_voice.c"
+ 
+ /* the track's FM operator slots (core.h P_FM1_ATK .. P_FM4_LEVEL, 20 consecutive ids) as SHDRUM names them */
+ enum {
+@@ -85,71 +83,52 @@ static const param_desc_t *shd_xdesc(uint32_t id)
+     return id >= SHP_AATK && id < SHP_AATK + SHP_N ? &SHD_X[id - SHP_AATK] : 0;
+ }
+ 
+-#define SHD_AT 0x40000000          /* in s[0], s[1]: the attack is running (the value is in the low 25 bits) */
+-#define SHD_EMASK 0x01FFFFFF
+-#define SHD_DEAD 200               /* a layer is gone when (env >> 10) * LEVEL falls under this (about -80 dB) */
+ 
+-static int32_t shd_env(int32_t *st, uint32_t atk, uint32_t dec)   /* one control tick; the value after it (Q24) */
++/* the track's parameters as a sound: the clamped E and slot values */
++static void shd_vp_load(shd_vp_t *q, const int16_t *p)
+ {
+-    int32_t s = *st, e = s & SHD_EMASK;
+-    if (s & SHD_AT) {
+-        e += (int32_t)ENV_LIN[atk & 127u];
+-        if (e >= (1 << 24)) {
+-            e = 1 << 24;
+-            *st = e;
+-        } else {
+-            *st = SHD_AT | e;
+-        }
+-    } else {
+-        e -= mulq16(e, ENV_EXP[dec & 127u]);
+-        *st = e;
+-    }
+-    return e;
+-}
+-
+-static inline int32_t shd_wave(uint32_t w, uint32_t ph, uint32_t inc, int32_t *nst)
+-{
+-    switch (w) {
+-    case SHW_SIN: return sine_i(ph);
+-    case SHW_TRI: return osc_tri(ph);
+-    case SHW_SAW: return osc_saw(ph, inc);
+-    case SHW_SQR: return osc_pulse(ph, inc, 0x80000000u);
+-    default: return (int32_t)(noise32(nst) >> 16) - 32768;
+-    }
++    q->wa = (uint8_t)clamp(p[P_E0], 0, SHW_COUNT - 1);
++    q->wb = (uint8_t)clamp(p[P_E1], 0, SHW_COUNT - 1);
++    q->xm = (uint8_t)clamp(p[P_E2], 0, SHM_COUNT - 1);
++    q->depth = (uint8_t)clamp(p[P_E3], 0, 127);
++    q->tunb = (int8_t)clamp(p[P_E4], -24, 24);
++    q->swep = (int8_t)clamp(p[P_E5], -24, 48);
++    q->swpt = (uint8_t)clamp(p[P_E6], 0, 127);
++    q->drv = (uint8_t)clamp(p[P_E7], 0, 127);
++    q->aatk = (uint8_t)clamp(p[SHP_AATK], 0, 127);
++    q->adec = (uint8_t)clamp(p[SHP_ADEC], 0, 127);
++    q->alvl = (uint8_t)clamp(p[SHP_ALVL], 0, 127);
++    q->batk = (uint8_t)clamp(p[SHP_BATK], 0, 127);
++    q->bdec = (uint8_t)clamp(p[SHP_BDEC], 0, 127);
++    q->blvl = (uint8_t)clamp(p[SHP_BLVL], 0, 127);
++    q->clik = (uint8_t)clamp(p[SHP_CLIK], 0, 127);
++    q->fold = (uint8_t)clamp(p[SHP_FOLD], 0, 127);
++    q->crsh = (uint8_t)clamp(p[SHP_CRSH], 0, 127);
++    q->ftyp = (uint8_t)clamp(p[SHP_FTYP], 0, SHF_COUNT - 1);
++    q->cut = (uint8_t)clamp(p[SHP_CUT], 0, 127);
++    q->res = (uint8_t)clamp(p[SHP_RES], 0, 127);
++    q->fenv = (int8_t)clamp(p[SHP_FENV], -64, 63);
+ }
+ 
+ static void shd_note_on(track_t *t, voice_t *v)
+ {
+-    v->ph[0] = v->ph[1] = v->ph[2] = 0;
+-    v->s[0] = SHD_AT;
+-    v->s[1] = SHD_AT;
+-    v->s[2] = 1 << 24;                                    /* the pitch envelope at its top */
+-    v->s[3] = (int32_t)((v->age * 2654435761u) | 1u);     /* a noise seed per hit (xorshift: never 0) */
+-    v->s[4] = v->s[5] = 0;
+-    v->s[6] = t->p[SHP_CLIK] ? 1 << 24 : 0;
+-    v->s[7] = 0;
++    shd_vp_t q;
++    shd_vp_load(&q, t->p);
++    shd_start(v->ph, v->s, &q, v->age);
+     v->env_out = v->vel * 258;                            /* the hit starts at its level (as DRUM) */
+     v->env = 1 << 24;
+ }
+ 
+-/* is any layer (or the click) still audible? */
+-static int shd_live(const track_t *t, const voice_t *v)
+-{
+-    const int16_t *p = t->p;
+-    if ((v->s[0] | v->s[1]) & SHD_AT || v->s[6] > (1 << 14))
+-        return 1;
+-    return ((v->s[0] & SHD_EMASK) >> 10) * clamp(p[SHP_ALVL], 0, 127) > SHD_DEAD ||
+-           ((v->s[1] & SHD_EMASK) >> 10) * clamp(p[SHP_BLVL], 0, 127) > SHD_DEAD;
+-}
+-
+ /* the hit is the envelope (as DRUM: drum_amp): the ADSR is held at full so a key-off never ends it; a voice whose
+  * layers have died away ends here */
+ static int32_t shd_amp(track_t *t, voice_t *v, int32_t adsr)
+ {
++    shd_vp_t q;
+     (void)adsr;
+     if (!v->active)
+         return 0;
+-    if (!shd_live(t, v)) {
++    shd_vp_load(&q, t->p);
++    if (!shd_alive(&q, v->s)) {
+         v->active = v->gate = 0;
+         v->stage = 0;
+         v->env = 0;
+@@ -161,95 +140,15 @@ static int32_t shd_amp(track_t *t, voice_t *v, int32_t adsr)
+ 
+ static void shd_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+ {
+-    const int16_t *p = t->p;
+-    uint32_t wa = (uint32_t)clamp(p[P_E0], 0, SHW_COUNT - 1), wb = (uint32_t)clamp(p[P_E1], 0, SHW_COUNT - 1);
+-    uint32_t xm = (uint32_t)clamp(p[P_E2], 0, SHM_COUNT - 1), ft = (uint32_t)clamp(p[SHP_FTYP], 0, SHF_COUNT - 1);
+-    int32_t depth = clamp(p[P_E3], 0, 127), drv = clamp(p[P_E7], 0, 127);
+-    int32_t clk = clamp(p[SHP_CLIK], 0, 127), fold = clamp(p[SHP_FOLD], 0, 127), crsh = clamp(p[SHP_CRSH], 0, 127);
+-    int32_t gA = clamp(p[SHP_ALVL], 0, 127) * 258, gB = clamp(p[SHP_BLVL], 0, 127) * 258;
+-    int32_t eA0 = v->s[0] & SHD_EMASK, eB0 = v->s[1] & SHD_EMASK, pe0 = v->s[2], eA1, eB1, pe1;
+-    int32_t sw = clamp(p[P_E5], -24, 48) * 16, tb = clamp(p[P_E4], -24, 24) * 16;
+-    int32_t pA0, pA1, nst = v->s[3], ck = v->s[6], held = v->s[7], ic1 = v->s[4], ic2 = v->s[5];
+-    int32_t md = depth * 258, gr, fg = 4096, g = 0, mk = 0, fk = 0, sh = 0;
+-    uint32_t phA = v->ph[0], phB = v->ph[1], cnt = v->ph[2], iA, iB, hold = 1, dd = (uint32_t)depth * 2628u;
+-    int32_t sA, sB, i;
+-    tsvf_t flt;
++    shd_vp_t q;
++    int32_t y[CTL];
++    uint32_t i;
+     if (n > CTL)
+         n = CTL;
+-    eA1 = shd_env(&v->s[0], (uint32_t)clamp(p[SHP_AATK], 0, 127), (uint32_t)clamp(p[SHP_ADEC], 0, 127));
+-    eB1 = shd_env(&v->s[1], (uint32_t)clamp(p[SHP_BATK], 0, 127), (uint32_t)clamp(p[SHP_BDEC], 0, 127));
+-    pe1 = pe0 - mulq16(pe0, ENV_EXP[clamp(p[P_E6], 0, 127)]);
+-    v->s[2] = pe1;
+-    /* pitch: the key (the host's pitch: bend, TUNE, LFO and the matrix's PITCH apply) plus the sweep; the phase
+-     * increments run linearly across the block so a fast sweep does not step */
+-    pA0 = clamp(m->pitch16 + ((sw * (pe0 >> 9)) >> 15), 0, 2047);
+-    pA1 = clamp(m->pitch16 + ((sw * (pe1 >> 9)) >> 15), 0, 2047);
+-    iA = pitch_inc((uint32_t)pA0);
+-    iB = pitch_inc((uint32_t)clamp(pA0 + tb, 0, 2047));
+-    sA = ((int32_t)(pitch_inc((uint32_t)pA1) - iA)) >> 5;
+-    sB = ((int32_t)(pitch_inc((uint32_t)clamp(pA1 + tb, 0, 2047)) - iB)) >> 5;
+-    gr = (gA * gB) >> 14;                                 /* the product's gain: 1.0 with both layers at 100 % */
+-    gr = gr > 32767 ? 32767 : gr;
+-    if (fold)
+-        fg = 4096 + fold * 3 * 4096 / 127;                /* x1..x4 (Q12) */
+-    if (drv > 0) {                                        /* x1..x4 into the soft clip, the level kept (DRUM's DRV) */
+-        g = 4096 + drv * 3 * 4096 / 127;
+-        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
+-    }
+-    if (crsh) {
+-        sh = crsh * 12 / 127;
+-        hold = 1u + (uint32_t)(crsh >> 5);
+-    }
+-    if (ft) {                                             /* the cutoff follows A's envelope by FENV (Q8 index steps) */
+-        int32_t cut = (clamp(p[SHP_CUT], 0, 127) << 8) + ((clamp(p[SHP_FENV], -64, 63) * (eA1 >> 9)) >> 7);
+-        tsvf_coef(&flt, cut, clamp(p[SHP_RES], 0, 127));
+-        fk = ANALOG_K(clamp(p[SHP_RES], 0, 127));
+-    }
+-    for (i = 0; i < (int32_t)n; i++) {
+-        int32_t eA = (eA0 + (((eA1 - eA0) * i) >> 5)) >> 9, eB = (eB0 + (((eB1 - eB0) * i) >> 5)) >> 9;   /* Q15 */
+-        int32_t bb = (shd_wave(wb, phB, iB, &nst) * eB) >> 15, aa, s;
+-        uint32_t pa = phA;
+-        if (xm == SHM_FM)
+-            pa += (uint32_t)bb * dd;                      /* B's enveloped wave into A's phase */
+-        aa = (shd_wave(wa, pa, iA, &nst) * eA) >> 15;
+-        s = ((aa * gA) >> 15) + ((bb * gB) >> 15);
+-        if (xm == SHM_RING)                               /* DPTH: the two layers added -> their product */
+-            s = (((s >> 1) * (32767 - md)) >> 14) + ((((((aa * bb) >> 15) * gr) >> 15) * md) >> 15);
+-        phA += iA;
+-        phB += iB;
+-        iA += (uint32_t)sA;
+-        iB += (uint32_t)sB;
+-        if (clk) {                                        /* CLIK: noise, a 3 ms decay, ahead of the effects */
+-            s += (((((int32_t)(noise32(&nst) >> 16) - 32768) * (ck >> 9)) >> 15) * (clk * 258)) >> 15;
+-            ck -= ck >> 7;
+-        }
+-        if (fold) {                                       /* FOLD: scale up, reflect back into full scale */
+-            int32_t z = (((s * fg) >> 12) + 32768) & 0x1FFFF;
+-            z = z > 65535 ? 131071 - z : z;
+-            s = z - 32768;
+-        }
+-        if (g)                                            /* DRV */
+-            s = (softclip((s * g) >> 12) * mk) >> 15;
+-        if (crsh) {                                       /* CRSH: sample hold, bits dropped */
+-            if (!cnt)
+-                held = ((s + ((1 << sh) >> 1)) >> sh) << sh;     /* rounded: no DC from the dropped bits */
+-            cnt = cnt + 1u >= hold ? 0u : cnt + 1u;
+-            s = held;
+-        }
+-        if (ft) {                                         /* the filter (analog_tap: LP 0 / BP 1 / HP 2 of the SVF) */
+-            int32_t y = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft - 1u) << 1;
+-            s = y;
+-        }
+-        out[i] += voice_amp(soft_knee(s, 24000), m, (uint32_t)i) << 1;
+-    }
+-    v->ph[0] = phA;
+-    v->ph[1] = phB;
+-    v->ph[2] = cnt;
+-    v->s[3] = nst;
+-    v->s[4] = ic1;
+-    v->s[5] = ic2;
+-    v->s[6] = ck;
+-    v->s[7] = held;
++    shd_vp_load(&q, t->p);
++    shd_run(&q, v->ph, v->s, m->pitch16, y, n);
++    for (i = 0; i < n; i++)
++        out[i] += voice_amp(soft_knee(y[i], 24000), m, i) << 1;
+ }
+ 
+ /* ------------------------------------------------------------ presets --- */
+diff --git a/firmware/src/params.c b/firmware/src/params.c
+index 6965332..744326f 100644
+--- a/firmware/src/params.c
++++ b/firmware/src/params.c
+@@ -235,6 +235,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
+ #if FELUCCA_SHDRUM
+     if (id >= SHP_AATK && id < SHP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_SHDRUM)   /* SHDRUM's slots (eng_shdrum.c) */
+         return shd_xdesc(id);
++    if (id >= SKP_SND0 && id < SKP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM)     /* DRUM KIT SH's (eng_drum.c) */
++        return shk_xdesc(id);
+ #endif
+     if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
+         return ins_desc(t->p[P_ITYPE], id - P_IA);
+@@ -250,6 +252,8 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
+ #if FELUCCA_SHDRUM
+     if (e == ENGI_SHDRUM && id >= SHP_AATK && id < SHP_END)   /* SHDRUM's slots among the FM operator ids (eng_shdrum.c) */
+         return shd_xdesc(id);
++    if (e == ENGI_DRUM && id >= SKP_SND0 && id < SKP_END)     /* DRUM KIT SH's (eng_drum.c) */
++        return shk_xdesc(id);
+ #endif
+     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
+ }
+@@ -486,6 +490,12 @@ static const page_t PAGES[] = {
+     {"SH LAYER B", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_BATK, SHP_BDEC, SHP_BLVL, 0xFF}},
+     {"SH FX 1", FAM_EDIT, SC_TRACK, GR_NONE, {P_E7, SHP_CLIK, SHP_FOLD, SHP_CRSH}},
+     {"SH FX 2", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_FTYP, SHP_CUT, SHP_RES, SHP_FENV}},
++    /* DRUM with KIT SH only (eng_drum.c; ui.c page_visible: the titles that start with "SK "): the lanes' sounds and tuning */
++    {"SK SND", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0, SKP_SND0 + 1, SKP_SND0 + 2, SKP_SND0 + 3}},
++    {"SK SND 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0 + 4, SKP_SND0 + 5, SKP_SND0 + 6, SKP_SND0 + 7}},
++    {"SK TUNE", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0, SKP_TUN0 + 1, SKP_TUN0 + 2, SKP_TUN0 + 3}},
++    {"SK TUNE 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0 + 4, SKP_TUN0 + 5, SKP_TUN0 + 6, SKP_TUN0 + 7}},
++    {"SK KIT", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_DPT, SKP_SWP, SKP_CRS, SKP_FLD}},
+ #endif
+     {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
+     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
+diff --git a/firmware/src/shd_voice.c b/firmware/src/shd_voice.c
+new file mode 100644
+index 0000000..2acdb51
+--- /dev/null
++++ b/firmware/src/shd_voice.c
+@@ -0,0 +1,214 @@
++/* SPDX-License-Identifier: GPL-3.0-only */
++/* The SHDRUM voice: the two-layer drum sound (see eng_shdrum.c for what it is), as a function of a parameter set (shd_vp_t)
++ * and a voice state (phases, envelopes, filter: 3 + 8 words), so two engines share it: SHDRUM (a track's parameters, the
++ * voice's own state) and DRUM's KIT SH (eng_drum.c: a recipe of the library below per lane, the lane's state).
++ * Included by both (guarded). */
++#ifndef SHD_VOICE_C
++#define SHD_VOICE_C
++
++enum { SHW_SIN, SHW_TRI, SHW_SAW, SHW_SQR, SHW_NOIS, SHW_COUNT };
++enum { SHM_MIX, SHM_FM, SHM_RING, SHM_COUNT };
++enum { SHF_OFF, SHF_LP, SHF_BP, SHF_HP, SHF_COUNT };
++
++/* one sound's parameters */
++typedef struct {
++    uint8_t wa, wb, xm, depth;          /* WAV A, WAV B, XMOD, DPTH */
++    int8_t tunb, swep;                  /* TUN B (semitones), SWEP (semitones) */
++    uint8_t swpt, drv;                  /* SWP T, DRV */
++    uint8_t aatk, adec, alvl;           /* LAYER A: attack, decay (F_TIME), level */
++    uint8_t batk, bdec, blvl;           /* LAYER B */
++    uint8_t clik, fold, crsh;           /* CLIK, FOLD, CRSH */
++    uint8_t ftyp, cut, res;             /* FLT, CUT, RES */
++    int8_t fenv;                        /* FENV */
++} shd_vp_t;
++
++#define SHD_AT 0x40000000          /* in s[0], s[1]: the attack is running (the value is in the low 25 bits) */
++#define SHD_EMASK 0x01FFFFFF
++#define SHD_DEAD 200               /* a layer is gone when (env >> 10) * LEVEL falls under this (about -80 dB) */
++
++static int32_t shd_env(int32_t *st, uint32_t atk, uint32_t dec)   /* one control tick; the value after it (Q24) */
++{
++    int32_t s = *st, e = s & SHD_EMASK;
++    if (s & SHD_AT) {
++        e += (int32_t)ENV_LIN[atk & 127u];
++        if (e >= (1 << 24)) {
++            e = 1 << 24;
++            *st = e;
++        } else {
++            *st = SHD_AT | e;
++        }
++    } else {
++        e -= mulq16(e, ENV_EXP[dec & 127u]);
++        *st = e;
++    }
++    return e;
++}
++
++static inline int32_t shd_wave(uint32_t w, uint32_t ph, uint32_t inc, int32_t *nst)
++{
++    switch (w) {
++    case SHW_SIN: return sine_i(ph);
++    case SHW_TRI: return osc_tri(ph);
++    case SHW_SAW: return osc_saw(ph, inc);
++    case SHW_SQR: return osc_pulse(ph, inc, 0x80000000u);
++    default: return (int32_t)(noise32(nst) >> 16) - 32768;
++    }
++}
++
++/* a hit's start: ph[3] and s[8] (the state layout in the file header of eng_shdrum.c) */
++static void shd_start(uint32_t *ph, int32_t *s, const shd_vp_t *q, uint32_t seed)
++{
++    ph[0] = ph[1] = ph[2] = 0;
++    s[0] = SHD_AT;
++    s[1] = SHD_AT;
++    s[2] = 1 << 24;                                       /* the pitch envelope at its top */
++    s[3] = (int32_t)((seed * 2654435761u) | 1u);          /* a noise seed per hit (xorshift: never 0) */
++    s[4] = s[5] = 0;
++    s[6] = q->clik ? 1 << 24 : 0;
++    s[7] = 0;
++}
++
++/* is any layer (or the click) still audible? */
++static int shd_alive(const shd_vp_t *q, const int32_t *s)
++{
++    if ((s[0] | s[1]) & SHD_AT || s[6] > (1 << 14))
++        return 1;
++    return ((s[0] & SHD_EMASK) >> 10) * (int32_t)q->alvl > SHD_DEAD || ((s[1] & SHD_EMASK) >> 10) * (int32_t)q->blvl > SHD_DEAD;
++}
++
++/* one block (n <= CTL samples) of the hit at pitch16 (1/16 semitones, 0..2047): y[] gets the signal ahead of the voice's
++ * knee and amplitude (Q15 scale, about full scale for a layer at 100 %) */
++static void shd_run(const shd_vp_t *q, uint32_t *ph, int32_t *st, int32_t pitch16, int32_t *y, uint32_t n)
++{
++    uint32_t wa = q->wa, wb = q->wb, xm = q->xm, ft = q->ftyp;
++    int32_t depth = q->depth, drv = q->drv, clk = q->clik, fold = q->fold, crsh = q->crsh;
++    int32_t gA = q->alvl * 258, gB = q->blvl * 258;
++    int32_t eA0 = st[0] & SHD_EMASK, eB0 = st[1] & SHD_EMASK, pe0 = st[2], eA1, eB1, pe1;
++    int32_t sw = q->swep * 16, tb = q->tunb * 16;
++    int32_t pA0, pA1, nst = st[3], ck = st[6], held = st[7], ic1 = st[4], ic2 = st[5];
++    int32_t md = depth * 258, gr, fg = 4096, g = 0, mk = 0, fk = 0, sh = 0;
++    uint32_t phA = ph[0], phB = ph[1], cnt = ph[2], iA, iB, hold = 1, dd = (uint32_t)depth * 2628u;
++    int32_t sA, sB, i;
++    tsvf_t flt;
++    if (n > CTL)
++        n = CTL;
++    eA1 = shd_env(&st[0], q->aatk, q->adec);
++    eB1 = shd_env(&st[1], q->batk, q->bdec);
++    pe1 = pe0 - mulq16(pe0, ENV_EXP[q->swpt & 127u]);
++    st[2] = pe1;
++    /* pitch: the key plus the sweep; the phase increments run linearly across the block so a fast sweep does not step */
++    pA0 = clamp(pitch16 + ((sw * (pe0 >> 9)) >> 15), 0, 2047);
++    pA1 = clamp(pitch16 + ((sw * (pe1 >> 9)) >> 15), 0, 2047);
++    iA = pitch_inc((uint32_t)pA0);
++    iB = pitch_inc((uint32_t)clamp(pA0 + tb, 0, 2047));
++    sA = ((int32_t)(pitch_inc((uint32_t)pA1) - iA)) >> 5;
++    sB = ((int32_t)(pitch_inc((uint32_t)clamp(pA1 + tb, 0, 2047)) - iB)) >> 5;
++    gr = (gA * gB) >> 14;                                 /* the product's gain: 1.0 with both layers at 100 % */
++    gr = gr > 32767 ? 32767 : gr;
++    if (fold)
++        fg = 4096 + fold * 3 * 4096 / 127;                /* x1..x4 (Q12) */
++    if (drv > 0) {                                        /* x1..x4 into the soft clip, the level kept (DRUM's DRV) */
++        g = 4096 + drv * 3 * 4096 / 127;
++        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
++    }
++    if (crsh) {
++        sh = crsh * 12 / 127;
++        hold = 1u + (uint32_t)(crsh >> 5);
++    }
++    if (ft) {                                             /* the cutoff follows A's envelope by FENV (Q8 index steps) */
++        int32_t cut = (q->cut << 8) + ((q->fenv * (eA1 >> 9)) >> 7);
++        tsvf_coef(&flt, cut, q->res);
++        fk = ANALOG_K(q->res);
++    }
++    for (i = 0; i < (int32_t)n; i++) {
++        int32_t eA = (eA0 + (((eA1 - eA0) * i) >> 5)) >> 9, eB = (eB0 + (((eB1 - eB0) * i) >> 5)) >> 9;   /* Q15 */
++        int32_t bb = (shd_wave(wb, phB, iB, &nst) * eB) >> 15, aa, s;
++        uint32_t pa = phA;
++        if (xm == SHM_FM)
++            pa += (uint32_t)bb * dd;                      /* B's enveloped wave into A's phase */
++        aa = (shd_wave(wa, pa, iA, &nst) * eA) >> 15;
++        s = ((aa * gA) >> 15) + ((bb * gB) >> 15);
++        if (xm == SHM_RING)                               /* DPTH: the two layers added -> their product */
++            s = (((s >> 1) * (32767 - md)) >> 14) + ((((((aa * bb) >> 15) * gr) >> 15) * md) >> 15);
++        phA += iA;
++        phB += iB;
++        iA += (uint32_t)sA;
++        iB += (uint32_t)sB;
++        if (clk) {                                        /* CLIK: noise, a 3 ms decay, ahead of the effects */
++            s += (((((int32_t)(noise32(&nst) >> 16) - 32768) * (ck >> 9)) >> 15) * (clk * 258)) >> 15;
++            ck -= ck >> 7;
++        }
++        if (fold) {                                       /* FOLD: scale up, reflect back into full scale */
++            int32_t z = (((s * fg) >> 12) + 32768) & 0x1FFFF;
++            z = z > 65535 ? 131071 - z : z;
++            s = z - 32768;
++        }
++        if (g)                                            /* DRV */
++            s = (softclip((s * g) >> 12) * mk) >> 15;
++        if (crsh) {                                       /* CRSH: sample hold, bits dropped (rounded: no DC) */
++            if (!cnt)
++                held = ((s + ((1 << sh) >> 1)) >> sh) << sh;
++            cnt = cnt + 1u >= hold ? 0u : cnt + 1u;
++            s = held;
++        }
++        if (ft)                                           /* the filter (analog_tap: LP 0 / BP 1 / HP 2 of the SVF) */
++            s = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft - 1u) << 1;
++        y[i] = s;
++    }
++    ph[0] = phA;
++    ph[1] = phB;
++    ph[2] = cnt;
++    st[3] = nst;
++    st[4] = ic1;
++    st[5] = ic2;
++    st[6] = ck;
++    st[7] = held;
++}
++
++/* ---------------------------------------------------------------- the library --- */
++/* The sounds DRUM's KIT SH puts on its lanes (SOUND, EDIT > SK SND): a name (5 characters at most, the knob shows it), the
++ * note the sound is designed at (a lane's GM notes play it that many semitones from it: a tom's 41..50 are a scale around
++ * it) and the sound. The first eight are the SHDRUM engine's presets, the same numbers (shdrum_test). */
++typedef struct {
++    uint8_t base;
++    shd_vp_t q;
++} shd_recipe_t;
++#define SHR(base, wa, wb, xm, dp, tb, sw, st, dr, aa, ad, al, ba, bd, bl, ck, fo, cr, ft, cu, rs, fe) \
++    {base, {wa, wb, xm, dp, tb, sw, st, dr, aa, ad, al, ba, bd, bl, ck, fo, cr, ft, cu, rs, fe}}
++#define SHD_RECIPES                                                                                                    \
++    /*   note  WAV A    WAV B    XMOD      DPTH TUNB SWEP SWPT DRV | A: ATK DEC LVL | B: ATK DEC LVL | CLIK FOLD CRSH | FLT CUT RES FENV */ \
++    SHR(36, SHW_SIN, SHW_SIN, SHM_FM, 20, 0, 30, 36, 20, 0, 78, 127, 0, 40, 40, 20, 0, 0, SHF_OFF, 100, 20, 0),   /* 0 KICK */ \
++    SHR(50, SHW_TRI, SHW_NOIS, SHM_MIX, 0, 0, 14, 22, 24, 0, 58, 100, 0, 62, 100, 40, 0, 0, SHF_LP, 108, 20, 0),  /* 1 SNARE */ \
++    SHR(80, SHW_SQR, SHW_SQR, SHM_RING, 127, 7, 0, 0, 0, 0, 40, 100, 0, 36, 70, 0, 0, 0, SHF_HP, 90, 30, 0),     /* 2 HAT */ \
++    SHR(80, SHW_SQR, SHW_SQR, SHM_RING, 127, 7, 0, 0, 0, 0, 66, 100, 0, 60, 70, 0, 0, 0, SHF_HP, 90, 30, 0),     /* 3 OPEN */ \
++    SHR(48, SHW_SIN, SHW_SIN, SHM_FM, 36, 12, 12, 30, 0, 0, 76, 100, 0, 40, 50, 10, 0, 0, SHF_OFF, 100, 20, 0),  /* 4 TOM */ \
++    SHR(60, SHW_NOIS, SHW_NOIS, SHM_MIX, 0, 0, 0, 0, 16, 0, 62, 100, 0, 56, 100, 0, 30, 0, SHF_BP, 80, 50, 0),   /* 5 CLAP */ \
++    SHR(72, SHW_SIN, SHW_SIN, SHM_FM, 70, 19, 0, 0, 0, 0, 90, 90, 0, 76, 40, 0, 0, 0, SHF_OFF, 100, 20, 0),      /* 6 BELL */ \
++    SHR(72, SHW_SQR, SHW_SAW, SHM_RING, 64, 5, 36, 50, 48, 0, 70, 100, 0, 60, 80, 0, 0, 0, SHF_OFF, 100, 20, 0), /* 7 ZAP */ \
++    SHR(36, SHW_SIN, SHW_TRI, SHM_MIX, 0, 12, 24, 24, 30, 0, 60, 127, 0, 26, 50, 40, 0, 0, SHF_OFF, 100, 20, 0), /* 8 KIK2 */ \
++    SHR(33, SHW_SIN, SHW_SIN, SHM_MIX, 0, 0, 12, 50, 0, 0, 95, 127, 0, 70, 0, 0, 0, 0, SHF_OFF, 100, 20, 0),     /* 9 DEEP */ \
++    SHR(50, SHW_TRI, SHW_NOIS, SHM_MIX, 0, 0, 8, 16, 30, 0, 40, 90, 0, 48, 100, 60, 0, 0, SHF_HP, 60, 20, 0),    /* 10 SNR2 */ \
++    SHR(70, SHW_SQR, SHW_TRI, SHM_MIX, 0, 7, 0, 0, 0, 0, 20, 100, 0, 14, 60, 80, 0, 0, SHF_BP, 100, 30, 0),      /* 11 RIM */ \
++    SHR(80, SHW_SQR, SHW_SQR, SHM_RING, 127, 7, 0, 0, 0, 0, 26, 100, 0, 22, 70, 0, 0, 0, SHF_HP, 90, 30, 0),     /* 12 HATP */ \
++    SHR(48, SHW_TRI, SHW_SIN, SHM_FM, 50, 19, 18, 24, 10, 0, 70, 100, 0, 34, 40, 20, 0, 0, SHF_OFF, 100, 20, 0), /* 13 TOM2 */ \
++    SHR(68, SHW_SQR, SHW_SQR, SHM_MIX, 0, 7, 0, 0, 0, 0, 60, 100, 0, 60, 90, 0, 0, 0, SHF_BP, 95, 40, 0),        /* 14 COWBL */ \
++    SHR(80, SHW_SQR, SHW_NOIS, SHM_RING, 100, 5, 0, 0, 0, 0, 100, 80, 0, 96, 100, 0, 0, 0, SHF_HP, 70, 20, 0),   /* 15 CYM */ \
++    SHR(55, SHW_SIN, SHW_SIN, SHM_MIX, 0, 0, 6, 12, 0, 0, 50, 127, 0, 20, 40, 30, 0, 0, SHF_OFF, 100, 20, 0),    /* 16 CONGA */ \
++    SHR(80, SHW_SIN, SHW_SIN, SHM_MIX, 0, 12, 0, 0, 0, 0, 25, 127, 0, 18, 40, 60, 0, 0, SHF_OFF, 100, 20, 0),    /* 17 CLAVE */ \
++    SHR(64, SHW_SIN, SHW_SIN, SHM_FM, 100, 24, 20, 14, 0, 0, 44, 110, 0, 30, 0, 0, 0, 0, SHF_OFF, 100, 20, 0),   /* 18 PERC */ \
++    SHR(60, SHW_NOIS, SHW_NOIS, SHM_MIX, 0, 0, 0, 0, 0, 0, 50, 127, 0, 40, 0, 0, 0, 0, SHF_BP, 60, 60, 0)        /* 19 NOISE */
++static const shd_recipe_t SHD_REC[] = {SHD_RECIPES};
++#define SHD_NREC ((uint32_t)(sizeof SHD_REC / sizeof SHD_REC[0]))
++static const char *const N_SHK_SND[] = {"KICK", "SNARE", "HAT",  "OPEN",  "TOM",   "CLAP", "BELL",  "ZAP",   "KIK2", "DEEP",
++                                        "SNR2", "RIM",   "HATP", "TOM2",  "COWBL", "CYM",  "CONGA", "CLAVE", "PERC", "NOISE"};
++_Static_assert(sizeof N_SHK_SND / sizeof N_SHK_SND[0] == 20, "SHD: a name per recipe");
++
++/* a lane's voice state in DRUM's lane memory (the 48 bytes of the metal source, which a SH lane does not use): the layout
++ * shd_run takes (ph[3], s[8]), a choke flag (a closed hat ends the open one), and whether the hit still sounds */
++typedef struct {
++    uint32_t ph[3];
++    int32_t s[8];
++    uint8_t choke, live, pad[2];
++} shk_state_t;
++
++#endif
+diff --git a/firmware/src/ui.c b/firmware/src/ui.c
+index 9aacad1..835de18 100644
+--- a/firmware/src/ui.c
++++ b/firmware/src/ui.c
+@@ -437,6 +437,8 @@ static int page_visible(uint32_t i)
+ #if FELUCCA_SHDRUM
+     if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'H' && PAGES[i].title[2] == ' ')   /* SHDRUM's pages (params.c) */
+         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SHDRUM;
++    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'K' && PAGES[i].title[2] == ' ')   /* DRUM KIT SH's pages (params.c) */
++        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_DRUM && TSEL->p[P_E0] == DK_SH;
+ #endif
+     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
+         return TSEL->eng_req % NENGINES == ENGI_DRUM;
+@@ -1395,6 +1397,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
+ #if FELUCCA_SHDRUM
+     if (e == &ENG_SHDRUM)                             /* SHDRUM: the preset's layers and effects (eng_shdrum.c) */
+         shd_load(t, pi);
++    if (e == &ENG_DRUM)                               /* DRUM: the kit's lane sounds (KIT SH, eng_drum.c) */
++        shk_load(t, pi);
+ #endif
+     load_end(t);
+ }
+@@ -1463,6 +1467,8 @@ static void clean_engine_of(track_t *t)
+ #if FELUCCA_SHDRUM
+     if (ei == ENGI_SHDRUM)                            /* SHDRUM: its layers and effects at their defaults */
+         shd_defaults(t);
++    if (ei == ENGI_DRUM)                              /* DRUM: KIT SH's lane sounds at their defaults */
++        shk_defaults(t);
+ #endif
+     if (ei == ENGI_FM6) {                             /* the init voice as the track's own patch (SLOT: OWN) */
+         uint8_t v[FP_SIZE + 1u];
+diff --git a/firmware/src/ui_draw.c b/firmware/src/ui_draw.c
+index 2ac1fcb..76529fe 100644
+--- a/firmware/src/ui_draw.c
++++ b/firmware/src/ui_draw.c
+@@ -1158,7 +1158,7 @@ static void draw_columns(void)
+         draw_column(0, "PACK", pn, "", VAL(0u), (int32_t)cpk_sel * 1000 / (int32_t)(CPK_N - 1u), ICON_SCALE);
+         draw_column(1, "KEY", BK[cpk_key], "", VAL(1u), (int32_t)cpk_key * 1000 / (int32_t)(CPK_KEYS - 1u), ICON_PITCH);
+         draw_column(2, "ACT", CA_NAME[cpk.act[cpk_key]], "", VAL(2u), (int32_t)cpk.act[cpk_key] * 1000 / (int32_t)(CA_N - 1u), ICON_ORDER);
+-        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 20);
++        fmt_int(sv, (int32_t)CPK_SPEED(&cpk) * 5);
+         draw_column(3, "SPEED", sv, "ms", VAL(3u), (int32_t)CPK_SPEED(&cpk) * 1000 / (int32_t)CPK_STRUM_MAX, ICON_RATE);
+         return;
+     }
+diff --git a/firmware/src/ui_help.c b/firmware/src/ui_help.c
+index 3f058ff..8bb2079 100644
+--- a/firmware/src/ui_help.c
++++ b/firmware/src/ui_help.c
+@@ -39,6 +39,11 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
+     {"SH LAYER B", "[K1]ATTACK[K2]DECAY[K3]LEVEL[EDIT]FX 1"},
+     {"SH FX 1", "[K1]DRIVE[K2]CLICK[K3]FOLD[K4]CRUSH[EDIT]FX 2"},
+     {"SH FX 2", "[K1]FILTER[K2]CUT[K3]RES[K4]FENV[EDIT]VOICE"},
++    {"SK SND", "[K1]KICK[K2]SNARE[K3]CLAP[K4]HAT[EDIT]SND 2"},
++    {"SK SND 2", "[K1]HAT OP[K2]TOM[K3]RIM[K4]BELL[EDIT]TUNE"},
++    {"SK TUNE", "[K1]KICK[K2]SNARE[K3]CLAP[K4]HAT[EDIT]TUNE 2"},
++    {"SK TUNE 2", "[K1]HAT OP[K2]TOM[K3]RIM[K4]BELL[EDIT]KIT"},
++    {"SK KIT", "[K1]DEPTH[K2]SWEEP[K3]CRUSH[K4]FOLD[EDIT]VOICE"},
+ #endif
+     {"SLICES", "[K1]SLICE[K2]MOVE[OCT+]SPLIT, JOIN"},
+     {"OPERATOR", H_FMOP},
+diff --git a/tests/drum_test.c b/tests/drum_test.c
+index 9bc6b7d..473ae74 100644
+--- a/tests/drum_test.c
++++ b/tests/drum_test.c
+@@ -1263,7 +1263,11 @@ static uint64_t seq_hash(const uint8_t (*ev)[3], uint32_t nev, uint32_t frames,
+ static void retired(void)
+ {
+     static const uint8_t MAP[4] = {DK_STD, DK_66, DK_10, DK_77};
+-    static const uint8_t ORDER[9] = {DK_STD, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC};
++    static const uint8_t ORDER[9 + FELUCCA_SHDRUM] = {DK_STD, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC
++#if FELUCCA_SHDRUM
++                                                      , DK_SH
++#endif
++    };
+     const param_desc_t *d = &ENG_DRUM.edit[0];
+     uint32_t r, n, k, bad = 0, same = 0;
+     int16_t kick;
+@@ -1304,16 +1308,16 @@ static void retired(void)
+     }
+     {
+         int32_t v = DK_STD, i;
+-        for (i = 0; i < 9; i++) {                       /* STD 80 10 66 55 77 DEEP TIGHT PERC, then held at the end */
++        for (i = 0; i < 9 + FELUCCA_SHDRUM; i++) {      /* STD 80 10 66 55 77 DEEP TIGHT PERC (SH), then held at the end */
+             bad += v != ORDER[i];
+             v = param_turn(d, v, 1);
+         }
+-        bad += v != DK_PERC || param_turn(d, DK_80, -1) != DK_STD || param_turn(d, DK_STD, -1) != DK_STD;
++        bad += v != DK_COUNT - 1 || param_turn(d, DK_80, -1) != DK_STD || param_turn(d, DK_STD, -1) != DK_STD;
+     }
+     for (r = 1; r < 4u; r++)
+         bad += strcmp(d->names[r], d->names[MAP[r]]) != 0 || enum_orig(d, (int32_t)r) != MAP[r] ||
+                param_fit(d, (int32_t)r) != MAP[r];
+-    bad += param_fit(d, 99) != DK_PERC || param_fit(d, -5) != DK_STD || enum_orig(d, DK_55) != DK_55;
++    bad += param_fit(d, 99) != DK_COUNT - 1 || param_fit(d, -5) != DK_STD || enum_orig(d, DK_55) != DK_55;
+     bad += param_fit(&TP[P_LEVEL], 77) != 77;
+     {   /* a motion event of KIT 2 (CYM): stored and played as 10 */
+         host_tracks_init();
+diff --git a/tests/golden.txt b/tests/golden.txt
+index 749ec29..938e97c 100644
+--- a/tests/golden.txt
++++ b/tests/golden.txt
+@@ -58,6 +58,9 @@ preset/DRUM/00_DRUM_KIT b564eca443439374
+ preset/DRUM/01_DEEP_KIT b1d9213d516c3d08
+ preset/DRUM/02_TIGHT_KIT e133e001f91a527c
+ preset/DRUM/03_PERC_KIT ba6f85f915ac9978
++preset/DRUM/04_SH_KIT d8d303bc99f6c0bc
++preset/DRUM/05_SH_PUNCH da9c2c18b219867c
++preset/DRUM/06_SH_DEEP 9bae5d3bf9ff1fa8
+ preset/NOISE/00_WIND 1c6641c3d683e27c
+ preset/NOISE/01_RAIN 6c08f98161409d14
+ preset/NOISE/02_ARCADE 6ca2c9a2a067976c
+diff --git a/tests/hostsim.c b/tests/hostsim.c
+index cfbf864..c549ed9 100644
+--- a/tests/hostsim.c
++++ b/tests/hostsim.c
+@@ -107,6 +107,8 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
+ #if FELUCCA_SHDRUM
+     if (e == ENGI_SHDRUM)                         /* SHDRUM: the preset's layers and effects (ui.c apply_preset_to) */
+         shd_load(t, pi);
++    if (e == ENGI_DRUM)                           /* DRUM: the kit's lane sounds (KIT SH; ui.c apply_preset_to) */
++        shk_load(t, pi);
+ #endif
+ }
+ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
+diff --git a/tests/midi_control_test.c b/tests/midi_control_test.c
+index 7ad0cec..7178864 100644
+--- a/tests/midi_control_test.c
++++ b/tests/midi_control_test.c
+@@ -904,7 +904,7 @@ static int pc_test(void)
+                 ok &= k == P_E0 || dr->p[k] == was.p[k];
+             last = dr->p[P_E0];
+         }
+-        ok &= n == 9u && last == d->max;                 /* (1.5.6, #216: DEEP TIGHT PERC 6..8) */
++        ok &= n == 9u + FELUCCA_SHDRUM && last == d->max;   /* (1.5.6, #216: DEEP TIGHT PERC 6..8; SH 9) */
+         pc(3, DK_COUNT + 2u); frame();
+         ok &= dr->p[P_E0] == last;
+         bad += check("  DRUM: 0..8 the nine kits (STD 80 10 66 55 77 DEEP TIGHT PERC; HAND CYM H+CYM skipped), only KIT; 9.. ignored", ok);
+diff --git a/tests/project_test.c b/tests/project_test.c
+index e23b527..2901aec 100644
+--- a/tests/project_test.c
++++ b/tests/project_test.c
+@@ -373,6 +373,9 @@ int main(void)
+         q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
+         q.t[2].engine = ENGI_PHYS;
+         q.t[3].engine = ENGI_PHYS;
++        for (i = 0; i < 4u; i++)                        /* (an engine change resets DRUM KIT SH's slots, ui.c apply_preset_to) */
++            for (uint32_t kk = P_FM1_ATK; kk <= P_FM4_LEVEL; kk++)
++                q.t[i].p[kk] = TP[kk].def;
+         for (i = 0; i < 8u; i++) {
+             q.t[0].p[P_E0 + i] = E0[i];
+             q.t[1].p[P_E0 + i] = E1[i];
+diff --git a/tests/shdrum_test.c b/tests/shdrum_test.c
+index 5ca9aa7..d9dc307 100644
+--- a/tests/shdrum_test.c
++++ b/tests/shdrum_test.c
+@@ -217,6 +217,106 @@ int main(int argc, char **argv)
+         host_tracks_init(); host_preset(&trk[0], 0, 0); chk("other engines keep TP", track_desc(&trk[0], SHP_FOLD) == &TP[SHP_FOLD]);
+     }
+ 
++    /* 6. DRUM KIT SH */
++    {
++        static const uint8_t LN[8] = {36, 38, 39, 42, 46, 45, 37, 56};      /* the lanes' own notes (eng_drum.c DRUM_LANE_NOTE) */
++        uint32_t kp, l, k, badk = 0;
++        stat_t a, b;
++        chk("DK_SH is the last kit and the SH presets use it", DK_SH == DK_COUNT - 1 && ENG_DRUM.edit[0].max == DK_SH &&
++            strcmp(ENG_DRUM.edit[0].names[DK_SH], "SH") == 0 && ENG_DRUM.npresets == 7 && ENG_DRUM.presets[4].e[0] == DK_SH);
++        for (l = 0; l < 8; l++) {       /* recipe l == SHDRUM preset l */
++            int16_t p[P_COUNT] = {0}; shd_vp_t q;
++            uint32_t i;
++            for (i = 0; i < 8; i++) p[P_E0 + i] = ENG_SHDRUM.presets[l].e[i];
++            for (i = 0; i < SHP_N; i++) p[SHP_AATK + i] = SHD_PRESET_X[l][i];
++            shd_vp_load(&q, p);
++            if (memcmp(&q, &SHD_REC[l].q, sizeof q)) { uint32_t j; printf("  recipe %u differs:", l); for (j = 0; j < sizeof q; j++) if (((uint8_t *)&q)[j] != ((const uint8_t *)&SHD_REC[l].q)[j]) printf(" [%u]%d/%d", j, ((uint8_t *)&q)[j], ((const uint8_t *)&SHD_REC[l].q)[j]); printf("\n"); fails++; }
++        }
++        for (kp = 4; kp < 7; kp++) {
++            double tot = 0;
++            for (l = 0; l < 8; l++) {
++                host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem);
++                host_preset(&trk[0], ENGI_DRUM, kp);
++                a = hit(LN[l], NMAXB, 0);
++                host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem);
++                host_preset(&trk[0], ENGI_DRUM, kp);
++                b = hit(LN[l], NMAXB, 0);
++                tot += a.rms;
++                if (a.peak >= 32767 * 1.5 || a.rms < 50 || a.dc > 0.02 * a.peak + 5 || a.live_end || a.hash != b.hash)
++                    printf("  kit %u lane %u: peak %.0f rms %.0f dc %.1f end %d rep %d\n", kp, l, a.peak, a.rms, a.dc, !a.live_end, a.hash == b.hash), badk++;
++                if (kp == 4) printf("shdrum_test: SH KIT lane %u (%s): peak %6.0f rms %6.0f t30 %6.1f ms\n", l, N_SHK_SND[SHK_KITS[0][l]], a.peak, a.rms, a.t30);
++            }
++        }
++        chk("SH kits: every lane audible, bounded, ends, repeatable", !badk);
++        /* a lane's sound is its own: changing the KICK's sound changes the kick, not the snare */
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
++        a = hit(36, 300, 0); b = hit(38, 300, 0);
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
++        trk[0].p[SKP_SND0] = 9;
++        { stat_t a2 = hit(36, 300, 0), b2 = hit(38, 300, 0);
++          chk("KICK's sound changes the kick", a2.hash != a.hash);
++          chk("... and not the snare (apart from the noise seed)", fabs(b2.rms - b.rms) < 0.02 * b.rms + 1); }
++        /* a lane's TUNE: +12 semitones doubles the kick's pitch (measured late, past the sweep) */
++        { int16_t *bf = malloc(2 * 30000); uint32_t i, z0 = 0, z1 = 0;
++          host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 9 - 9 + 4);
++          trk[0].p[SKP_SND0] = 9;                                          /* DEEP: a long sub */
++          (void)hit(36, 700, bf);
++          for (i = 4001; i < 8000; i++) z0 += (bf[i] < 0) != (bf[i - 1] < 0);
++          trk[0].p[SKP_TUN0] = 12; (void)hit(36, 700, bf);
++          for (i = 4001; i < 8000; i++) z1 += (bf[i] < 0) != (bf[i - 1] < 0);
++          printf("shdrum_test: SH lane TUNE +12: %u -> %u zero crossings\n", z0, z1);
++          chk("lane TUNE +12 doubles the pitch", z1 > 1.8 * z0 && z1 < 2.2 * z0); free(bf); }
++        /* the kit's TUNE knob (E1) and DECY knob act too */
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
++        a = hit(38, 600, 0); trk[0].p[P_E3] = 100; b = hit(38, 600, 0);
++        chk("DECY longer -> the snare rings longer", b.t30 > a.t30);
++        /* the closed hat ends the open hat: an open hat then a closed one is quieter later than the open one alone */
++        { int32_t o[CTL]; double e1 = 0, e2 = 0; uint32_t i, kk;
++          for (k = 0; k < 2; k++) {
++              host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
++              trk_note_on(&trk[0], 46, 100);
++              for (i = 0; i < 20; i++) track_render(&trk[0], o, CTL);
++              if (k) trk_note_on(&trk[0], 42, 20);                          /* a soft closed hat (the choke), then 150 ms on */
++              for (i = 0; i < 100; i++) track_render(&trk[0], o, CTL);
++              for (i = 0; i < 20; i++) { track_render(&trk[0], o, CTL); for (kk = 0; kk < CTL; kk++) { if (k) e2 += (double)o[kk] * o[kk]; else e1 += (double)o[kk] * o[kk]; } }
++          }
++          printf("shdrum_test: choke: open hat alone %.3g, after a closed hat %.3g\n", e1, e2);
++          chk("a closed hat chokes the open one", e2 < 0.25 * e1); }
++        /* a muted lane is silent (and rings on), the lane LEVEL scales it */
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4);
++        a = hit(36, 200, 0);
++        drum_mute[0] = 1; b = hit(36, 200, 0); drum_mute[0] = 0;
++        chk("a muted lane is silent", b.peak == 0 && a.peak > 100);
++        trk[0].p[P_LN0] = 64; b = hit(36, 200, 0);
++        chk("lane LEVEL 64 is quieter", b.rms < 0.4 * a.rms && b.rms > 0.05 * a.rms);
++        /* KIT STD is not touched by the SH slots */
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 0);
++        a = hit(36, 100, 0);
++        host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 0);
++        for (k = SKP_SND0; k < SKP_END; k++) trk[0].p[k] = 7;
++        b = hit(36, 100, 0);
++        chk("KIT STD ignores the SH slots", a.hash == b.hash);
++        /* corners: every SH slot and knob at its extremes, every lane note (and GM notes 35..81), bounded */
++        { uint32_t c, n, badc = 0;
++          for (c = 0; c < 48; c++) {
++              host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, 4 + c % 3);
++              for (k = 0; k < 8; k++) { trk[0].p[SKP_SND0 + k] = (int16_t)((c * 7 + k * 3) % 20); trk[0].p[SKP_TUN0 + k] = (c >> (k % 4)) & 1 ? 12 : -12; }
++              trk[0].p[SKP_DPT] = c & 1 ? 63 : -64; trk[0].p[SKP_SWP] = c & 2 ? 24 : -24; trk[0].p[SKP_CRS] = c & 4 ? 127 : 0; trk[0].p[SKP_FLD] = c & 8 ? 127 : 0;
++              trk[0].p[P_E1] = c & 16 ? 0 : 127; trk[0].p[P_E2] = c & 32 ? 0 : 127; trk[0].p[P_E3] = c & 1 ? 0 : 127; trk[0].p[P_E4] = c & 2 ? 0 : 127; trk[0].p[P_E7] = c & 4 ? 127 : 0;
++              for (n = 35; n <= 81; n += 2) { stat_t s = hit(n, 900, 0); if (s.peak > 70000 || s.dc > 4000) { if (!badc) printf("  corner c %u note %u: peak %.0f dc %.0f end %u\n", c, n, s.peak, s.dc, !s.live_end); badc++; } }
++          }
++          chk("SH corners: bounded, no DC runaway (long DECY tails may outlast the window)", !badc); }
++        /* descriptors */
++        for (k = SKP_SND0; k < SKP_END; k++) {
++            const param_desc_t *d = param_desc_of(ENGI_DRUM, k);
++            chk("SKD desc ok", d && d != &TP[k] && d->def >= d->min && d->def <= d->max);
++        }
++        host_tracks_init(); host_preset(&trk[0], ENGI_DRUM, 4);
++        chk("DRUM track_desc reaches the SH labels", track_desc(&trk[0], SKP_SND0) == &SKD[0]);
++        chk("the SH presets set the lanes' sounds", trk[0].p[SKP_SND0] == 0 && trk[0].p[SKP_SND0 + 7] == 14);
++        host_preset(&trk[0], ENGI_DRUM, 6); chk("SH DEEP", trk[0].p[SKP_SND0] == 9 && trk[0].p[SKP_SND0 + 4] == 15);
++    }
++
+     /* 5. demos */
+     if (dir) {
+         static int16_t buf[44100 * 2];
+@@ -235,6 +335,38 @@ int main(int argc, char **argv)
+             }
+         }
+     }
++    if (dir) {   /* the three SH kits: a two-bar loop at 120 bpm on the lanes' GM notes */
++        static const char *KN[4] = {"kit", "punch", "deep", "stdref"};
++        static const uint8_t K_[16] = {1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0}, S_[16] = {0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1},
++                             H_[16] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1}, O_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0},
++                             T_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}, R_[16] = {0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0},
++                             C_[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0};
++        static int16_t lp[44100 * 5];
++        uint32_t kp2, st, nb = (uint32_t)(4.0 * FS / CTL), i, k, sstep = (uint32_t)(FS / 8 / CTL) + 1;   /* a 16th at 120 bpm: 5512 samples = 172 blocks */
++        for (kp2 = 0; kp2 < 4; kp2++) {
++            int32_t o[CTL]; char path[512]; FILE *f; uint32_t n = 0;
++            host_tracks_init(); vage = 0; memset(eng_mem, 0, sizeof eng_mem); host_preset(&trk[0], ENGI_DRUM, kp2 == 3 ? 0 : 4 + kp2);
++            memset(lp, 0, sizeof lp);
++            for (i = 0; i < nb; i++) {
++                if (i % 172 == 0) {
++                    st = (i / 172) % 16;
++                    if (K_[st]) trk_note_on(&trk[0], 36, 120);
++                    if (S_[st]) trk_note_on(&trk[0], 38, 110);
++                    if (C_[st]) trk_note_on(&trk[0], 39, 90);
++                    if (H_[st]) trk_note_on(&trk[0], 42, st % 4 ? 70 : 100);
++                    if (O_[st]) trk_note_on(&trk[0], 46, 90);
++                    if (T_[st]) trk_note_on(&trk[0], 45, 110);
++                    if (R_[st]) trk_note_on(&trk[0], 37, 90);
++                }
++                track_render(&trk[0], o, CTL);
++                for (k = 0; k < CTL; k++) lp[n++] = (int16_t)clamp(o[k], -32768, 32767);
++            }
++            snprintf(path, sizeof path, "%s/shkit_%s_loop.wav", dir, KN[kp2]);
++            f = fopen(path, "wb");
++            if (f) { wav_hdr(f, n); for (k = 0; k < n; k++) wav_put(f, lp[k], lp[k]); fclose(f); }
++        }
++        (void)sstep;
++    }
+     printf("shdrum_test: %s\n", fails ? "FAIL" : "ok");
+     return fails != 0;
+ }
+diff --git a/tests/ui_test.c b/tests/ui_test.c
+index 049e071..b3e4139 100644
+--- a/tests/ui_test.c
++++ b/tests/ui_test.c
+@@ -529,6 +529,9 @@ static int test_sound_loads(void)
+     apply_preset_to(t, 0);
+     track_defaults_steps(t);
+     project_load(0);
++    for (uint32_t kk = P_FM1_ATK; kk <= P_FM4_LEVEL; kk++)   /* (the slots a legacy sound stored are fit to DRUM's KIT SH ranges on load: unused with any
++                                                              * other kit; a SH preset sets them) */
++        before.p[kk] = t->p[kk];
+     bad += check("saved SAMPLE PERC project: a DRUM track (its kit), the rest of the sound and every step kept",
+                  t->eng_req == ENGI_DRUM && t->preset == 0u && perc_kit(t) &&
+                  !memcmp(t->p, before.p, P_E0 * sizeof t->p[0]) && !memcmp(t->step, before.step, sizeof t->step));
+diff --git a/tests/v156_test.c b/tests/v156_test.c
+index 134217c..8403160 100644
+--- a/tests/v156_test.c
++++ b/tests/v156_test.c
+@@ -220,7 +220,7 @@ static int kits(void)
+     track_t *t;
+     int32_t s;
+     static int32_t kbuf[2 * CTL];
+-    ok = DK_DEEP == 9 && DK_TIGHT == 10 && DK_PERC == 11 && DK_COUNT == 12 && DV_NKIT == 8 && d->max == DK_PERC &&
++    ok = DK_DEEP == 9 && DK_TIGHT == 10 && DK_PERC == 11 && DK_COUNT == 12 + FELUCCA_SHDRUM && DV_NKIT == 8 && d->max == DK_COUNT - 1 &&
+          str_eq(d->names[DK_DEEP], "DEEP") && str_eq(d->names[DK_TIGHT], "TIGHT") && str_eq(d->names[DK_PERC], "PERC");
+     for (k = 0; k < 3u; k++)
+         for (l = 0; l < DV_NLANE; l++) {
+@@ -232,7 +232,7 @@ static int kits(void)
+         }
+     bad += check("KITS (#216): DEEP TIGHT PERC appended (9..11), each lane one of the five kits' (DEEP's kick 2 st down)", ok);
+ 
+-    ok = ENG_DRUM.npresets == 4u && str_eq(ENG_DRUM.presets[0].name, "DRUM KIT") && ENG_DRUM.presets[0].e[0] == DK_STD &&
++    ok = ENG_DRUM.npresets == 4u + 3u * FELUCCA_SHDRUM && str_eq(ENG_DRUM.presets[0].name, "DRUM KIT") && ENG_DRUM.presets[0].e[0] == DK_STD &&
+          str_eq(ENG_DRUM.presets[1].name, "DEEP KIT") && ENG_DRUM.presets[1].e[0] == DK_DEEP &&
+          str_eq(ENG_DRUM.presets[2].name, "TIGHT KIT") && ENG_DRUM.presets[2].e[0] == DK_TIGHT &&
+          str_eq(ENG_DRUM.presets[3].name, "PERC KIT") && ENG_DRUM.presets[3].e[0] == DK_PERC;
+diff --git a/web/editor.html b/web/editor.html
+index 803d3e3..7d809a1 100644
+--- a/web/editor.html
++++ b/web/editor.html
+@@ -1752,12 +1752,14 @@ function makeMockDevice(opt = {}) {
+         P("KALIMBA", [0, 34, 16, 56, 100, 90, 0, 48], [0, 100, 127, 60], 0, 7), P("HAND DRUM", [2, 112, 76, 56, 44, 100, 14, 24], [0, 100, 127, 64], 0, 6),
+         P("TOMS", [2, 0, 52, 40, 30, 100, 40, 30], [0, 100, 127, 70], 0, 2), P("DRONE STRING", [3, 127, 80, 88, 64, 100, 92, 0], [0, 100, 127, 90], 0, 3),
+         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3)] },
+-    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"], 0), D("TUNE", F.PCT, 0, 127, 64),
++    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC", "SH"], 0), D("TUNE", F.PCT, 0, 127, 64),
+         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
+         E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
+       presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),   /* (1.5.6, #216: the new kits) */
+         P("DEEP KIT", [9, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12), P("TIGHT KIT", [10, 64, 64, 56, 64, 100, 0, 16], [0, 100, 127, 100], 0, 12),
+-        P("PERC KIT", [11, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
++        P("PERC KIT", [11, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
++        P("SH KIT", [12, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12), P("SH PUNCH", [12, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
++        P("SH DEEP", [12, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
+     { name: "NOISE", titles: ["SRC", "MOVE"], edit: [E("MODE", ["ANLG", "DUST", "LFSR", "META"], 0), D("COLR", F.PCT, 0, 127, 64),
+         D("FREQ", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 30), D("TRK", F.PCT, 0, 127, 64), D("DENS", F.PCT, 0, 127, 0),
+         D("DRFT", F.PCT, 0, 127, 0), D("CRSH", F.PCT, 0, 127, 0)],
+diff --git a/web/test_web.mjs b/web/test_web.mjs
+index 1877770..37f8a21 100644
+--- a/web/test_web.mjs
++++ b/web/test_web.mjs
+@@ -341,9 +341,9 @@ async function editorSamplePresets() {
+   const kitD = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
+   const kitSet = [];
+   for (const v of [1, 2, 3]) kitSet.push(E.parse[C.SET](await rq(E.req.set(0, info.pe0, v))).value);
+-  ok(eq(kitD.names, ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"]) &&   /* (1.5.6: DEEP TIGHT PERC) */
+-     eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((v) => E.aliasOf(kitD.names, v)), [0, 6, 5, 8, 4, 5, 6, 7, 8, 9, 10, 11]) &&
+-     eq(E.enumShown(kitD).filter((v) => E.aliasOf(kitD.names, v) === v).map((v) => kitD.names[v]), ["STD", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"]) &&
++  ok(eq(kitD.names, ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC", "SH"]) &&   /* (1.5.6: DEEP TIGHT PERC; SH) */
++     eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((v) => E.aliasOf(kitD.names, v)), [0, 6, 5, 8, 4, 5, 6, 7, 8, 9, 10, 11, 12]) &&
++     eq(E.enumShown(kitD).filter((v) => E.aliasOf(kitD.names, v) === v).map((v) => kitD.names[v]), ["STD", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC", "SH"]) &&
+      eq(kitSet, [6, 5, 8]),
+     "DRUM: KIT 1..3 (once HAND CYM H+CYM) named 66 10 77, aliases of 6 5 8: hidden, a SET lands there");
+   const removed = E.parse[C.PRESET](await rq(E.req.preset(4, 4)));
+@@ -391,8 +391,8 @@ function mockTables() {
+        ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
+        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
+     ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
+-       dr.presets.length === 4 && dr.presets.every((p) => p.pat === 12) && dr.presets[0].name === "DRUM KIT",
+-       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV), four kits (1.5.6: DEEP TIGHT PERC) suggesting BEAT");
++       dr.presets.length === 7 && dr.presets.every((p) => p.pat === 12) && dr.presets[0].name === "DRUM KIT",
++       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV), seven kits (1.5.6: DEEP TIGHT PERC; SH KIT PUNCH DEEP) suggesting BEAT");
+   }
+   const dj = DESC;
+   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }

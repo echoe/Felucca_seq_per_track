@@ -87,7 +87,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 #define PREF_CPU2_ON (0x80u << 16)              /* MENU > SYSTEM > 2ND CORE ON (BETA): the second core from the next
                                                  * power-on (main.c); clear = OFF, one core as 1.6 (every older setting:
                                                  * 1.6 never set bit 7). It turns itself OFF when core 1 misreads
-                                                 * (hal/fm1_cpu1.h). (The 1.6.1 dual-core beta build had it the other
+                                                 * (bsp/chip/fm1_cpu1.h). (The 1.6.1 dual-core beta build had it the other
                                                  * way round, 0 AUTO / 1 OFF) */
 /* MENU > CONTROL > SELECT: 0 BPM, 1 PAGE (1.5.5, #188), 2 MODW, 3 VEL (1.5.6, #84: ui_input.c sel_play), bit 4 and bit 6 of
  * ui_prefs2 (0 in every older setting = BPM; 1.5.5's PAGE keeps its bit; firmware before 1.5.6 reads MODW as BPM and
@@ -434,6 +434,12 @@ static uint32_t layer_btn(void);
  * track's (its patch's operators, ui_fm6op.c) */
 static int page_visible(uint32_t i)
 {
+#if FELUCCA_SHDRUM
+    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'H' && PAGES[i].title[2] == ' ')   /* SHDRUM's pages (params.c) */
+        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SHDRUM;
+    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'K' && PAGES[i].title[2] == ' ')   /* DRUM KIT SH's pages (params.c) */
+        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_DRUM && TSEL->p[P_E0] == DK_SH;
+#endif
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -1388,6 +1394,12 @@ static void apply_preset_to(track_t *t, uint32_t pi)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
+#if FELUCCA_SHDRUM
+    if (e == &ENG_SHDRUM)                             /* SHDRUM: the preset's layers and effects (eng_shdrum.c) */
+        shd_load(t, pi);
+    if (e == &ENG_DRUM)                               /* DRUM: the kit's lane sounds (KIT SH, eng_drum.c) */
+        shk_load(t, pi);
+#endif
     load_end(t);
 }
 
@@ -1452,6 +1464,12 @@ static void clean_engine_of(track_t *t)
         t->p[P_REL] = CLEAN_REL;
     }
     fm1_irq_on();
+#if FELUCCA_SHDRUM
+    if (ei == ENGI_SHDRUM)                            /* SHDRUM: its layers and effects at their defaults */
+        shd_defaults(t);
+    if (ei == ENGI_DRUM)                              /* DRUM: KIT SH's lane sounds at their defaults */
+        shk_defaults(t);
+#endif
     if (ei == ENGI_FM6) {                             /* the init voice as the track's own patch (SLOT: OWN) */
         uint8_t v[FP_SIZE + 1u];
         fm6_unpack(FM6_INIT, v);

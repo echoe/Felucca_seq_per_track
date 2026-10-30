@@ -23,7 +23,7 @@
 #define memcpy felucca_memcpy
 #define memcmp felucca_memcmp
 #include "felucca_tables.h"
-#include "../firmware/src/libc.c"
+#include "../firmware/bsp/chip/libc.c"
 #undef memset
 #undef memcpy
 #undef memcmp
@@ -36,7 +36,7 @@ static struct { volatile uint32_t notes, buttons; } fm1_in;
 #include "../firmware/src/slicer.c"
 #include "../firmware/src/fx.c"
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
-#include "../firmware/src/usb.c"
+#include "../firmware/bsp/chip/usb.c"
 #include "../firmware/src/midi_uart.c"                /* TRS MIDI IN: its parser (um_byte) feeds midi_in_q */
 #include "../firmware/src/song_chain.c"
 #include "../firmware/src/seq.c"
@@ -104,6 +104,12 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
+#if FELUCCA_SHDRUM
+    if (e == ENGI_SHDRUM)                         /* SHDRUM: the preset's layers and effects (ui.c apply_preset_to) */
+        shd_load(t, pi);
+    if (e == ENGI_DRUM)                           /* DRUM: the kit's lane sounds (KIT SH; ui.c apply_preset_to) */
+        shk_load(t, pi);
+#endif
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {

@@ -56,7 +56,7 @@ const colours = (fb) => new Set(fb).size;
 const a = await device(null);
 a.render(200);
 const splash = colours(a.screen());
-{ // the power-on LED sweep (hal/fm1_led_anim.h) under the splash: at 200 ms its head on the middle of the keyboard, the
+{ // the power-on LED sweep (bsp/boards/fm1/fm1_led_anim.h) under the splash: at 200 ms its head on the middle of the keyboard, the
   // keys it passed glowing (DIM HI), the ones ahead dark, the buttons not yet; the UI's LEDs untouched until it ends
   const p = a.ex.web_anim_levels(), lv = p ? Array.from(new Uint8Array(a.mem.buffer, p, 41)) : [];
   const keys = lv.slice(14), head = keys.indexOf(Math.max(...keys.map((q) => q & 127)) | 128);
@@ -101,10 +101,10 @@ a.render(300);
 check("FX held: its button and the effects' keys breathe, none lit; let go: nothing",
       (brB >> B.FX & 1) === 1 && brK !== 0 && (brK & litK) === 0 && litK === 0 &&
       a.ex.web_breath_keys() === 0 && a.ex.web_breath_buttons() === 0);
-{ // the page's breathing peaks against the firmware's (hal/fm1_input.h FM1_LED_BREATH_PK / _LO, /256 of lit): the
+{ // the page's breathing peaks against the firmware's (bsp/boards/fm1/fm1_input.h FM1_LED_BREATH_PK / _LO, /256 of lit): the
   // colour at 50 % between the dark and the lit one by the LED's share, gamma-encoded (sRGB), within 0.06
   const html = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  const hal = fs.readFileSync(new URL("../../firmware/hal/fm1_input.h", import.meta.url), "utf8");
+  const hal = fs.readFileSync(new URL("../../firmware/bsp/boards/fm1/fm1_input.h", import.meta.url), "utf8");
   const pk = (n) => +hal.match(new RegExp(`#define ${n} (\\d+)u`))[1] / 256;
   const srgb = (x) => x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
   const red = (c) => parseInt(c.slice(1, 3), 16);

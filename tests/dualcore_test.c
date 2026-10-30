@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 gospodindilly-ops */
-/* The second core (fx.c mix_block, hal/fm1_cpu1.h) on the host, after Jangada's tests/dualcore_test.c
+/* The second core (fx.c mix_block, bsp/chip/fm1_cpu1.h) on the host, after Jangada's tests/dualcore_test.c
  * (github.com/zednaked/jangada, GPL-3.0). Four parts of the same engine at once (every preset of every engine), and
  * mixes of different engines; every part with something that keeps state of its own while it renders: an INSERT, the
  * SLICER (part 1), SPREAD (part 2), the matrix with LFO S&H, which draws from the shared generator (parts 0 and 3),

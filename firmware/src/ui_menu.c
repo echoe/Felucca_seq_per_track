@@ -38,10 +38,15 @@ typedef struct { const char *text; uint8_t kind; } menu_credit_t;
 static const menu_credit_t MENU_CREDITS[] = {
     {"H\xFCgelton Instruments", MC_TITLE},  /* Felucca's own: above; these are ours too */
     {"Leo Kuroshita", MC_TEXT},
-    {"The PHASE and DRUM engines: GPL-3.0", MC_TEXT},
+    {"The DRUM engine: GPL-3.0", MC_TEXT},
     {"The Sample Pack: CC0", MC_TEXT},
+    {"Felucca-Engines (ANALOG LOFI TRIO WHEEL NOISE PHASE): MIT", MC_TEXT},
     {"Fukiai icon font: MIT", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
+    {"", MC_TEXT},
+    {"FELUCCA-BSP", MC_TITLE},
+    {"The hardware layer: Leo Kuroshita, Charles Vestal, Kerem Kilic and others (its NOTICE) / MPL-2.0", MC_TEXT},
+    {"https://github.com/hugelton/felucca-bsp", MC_URL},
     {"", MC_TEXT},
     {"KLATTSCH", MC_TITLE},
     {"Tony Gies / MIT", MC_TEXT},
@@ -135,7 +140,7 @@ static int32_t menu_document(int32_t y, int draw)
         else y = menu_text(text, y, c->kind == MC_TITLE ? T_THEME : c->kind == MC_URL ? T_MID : T_TEXT, draw);
     }
     y = menu_text("LICENSES + SOURCE", y + 12, T_THEME, draw);
-    y = menu_text("DRUM + own samples: GPL-3.0-only", y, T_TEXT, draw);
+    y = menu_text("Felucca: GPL-3.0-only; Felucca-Engines MIT; felucca-bsp MPL-2.0; the Sample Pack CC0", y, T_TEXT, draw);
     y = menu_text("Fonts and icons: their licences travel with the source and the release files.", y, T_TEXT, draw);
     y = menu_text("NO WARRANTY", y, T_TEXT, draw);
     y = menu_text("Full notices in source:", y + 8, T_TEXT, draw);

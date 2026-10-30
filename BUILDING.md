@@ -10,16 +10,18 @@ The build makes three files in `build/`:
 
 ## Get the source
 
-Five engines are in a git submodule (`firmware/engines/`, [Felucca-Engines](https://github.com/hugelton/Felucca-Engines),
-MIT), so clone with `--recurse-submodules`:
+Two parts are git submodules: six engines (`firmware/engines/`, [Felucca-Engines](https://github.com/hugelton/Felucca-Engines),
+MIT) and the hardware layer (`firmware/bsp/`, [felucca-bsp](https://github.com/hugelton/felucca-bsp), MPL-2.0), so clone
+with `--recurse-submodules`:
 
 ```
 git clone --recurse-submodules https://github.com/hugelton/Felucca.git
 ```
 
 In a clone made without it, run `git submodule update --init` once. GitHub's "Download ZIP" and the source archives
-it adds to a release leave `firmware/engines/` empty; each release also has `felucca-X.Y.Z-source.tar.gz`, the whole
-source with the submodule's files in it. The build stops with "firmware/engines is empty" when they are missing.
+it adds to a release leave `firmware/engines/` and `firmware/bsp/` empty; each release also has
+`felucca-X.Y.Z-source.tar.gz`, the whole source with the submodules' files in it. The build stops with
+"firmware/engines is empty" or "firmware/bsp is empty" when they are missing.
 
 ## Prerequisites (macOS)
 
@@ -73,7 +75,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 | `FELUCCA_UAC` | 1 | USB audio input (the master output, stereo, 44.1 or 48 kHz) |
 | `FELUCCA_UAC_48K` | 1 | `0`: the USB audio input at 44.1 kHz only, as up to 1.0.5.2 (`firmware/src/usb.c`) |
 | `FELUCCA_UAC_AS_FIRST` | 1 | the audio control header lists the audio streaming interface before the MIDI one, so the USB audio driver of older macOS (up to 15) finds it; `0`: 1.0 to 1.5's order, byte for byte (`firmware/src/usb.c`) |
-| `FELUCCA_CPU2` | 1 | the second core is built in (MENU > SYSTEM > 2ND CORE, OFF by default); `0`: none of it, 1.6's one-core code and RAM (`firmware/hal/fm1_cpu1.h`, `firmware/src/fx.c`) |
+| `FELUCCA_CPU2` | 1 | the second core is built in (MENU > SYSTEM > 2ND CORE, OFF by default); `0`: none of it, 1.6's one-core code and RAM (`firmware/bsp/chip/fm1_cpu1.h`, `firmware/src/fx.c`) |
 | `FELUCCA_UART` | 1 | TRS MIDI IN |
 | `FELUCCA_SLICE` | 1 | the SLICE engine |
 | `FELUCCA_PATBANK` | 1 | eight sequences per track (SEQ > SEQUENCE); their flash is where the three user sample slots were, so `0` builds with USR1..3 and no sequence banks |

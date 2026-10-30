@@ -42,7 +42,7 @@ static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
 
 static int layer_set_open(void);                       /* (ui_layer.c) */
 /* the OCT LEDs, bit 0 OCT- lit, bit 1 OCT+ lit, OCT_BREATH OCT+ breathing (can be pressed: dark .. ~60 %,
- * hal/fm1_input.h fm1_led_breath, #119). In the dialogs and on action pages OCT- (back) is lit and OCT+ breathes
+ * bsp/boards/fm1/fm1_input.h fm1_led_breath, #119). In the dialogs and on action pages OCT- (back) is lit and OCT+ breathes
  * while it would do something; the menu: on a value row OCT- and OCT+ both breathe while that way has a value to go to,
  * on CALIBRATION / ABOUT OCT+ breathing alone (opens), in ABOUT OCT- lit (back); elsewhere the octave shift */
 #define OCT_BREATH 4u
@@ -172,7 +172,7 @@ static uint32_t grid_leds(void)
     return m;
 }
 
-/* the DRUM grid's beats, bit k = key k (ui_leds: a steady brighter glow than the other steps', hal/fm1_input.h
+/* the DRUM grid's beats, bit k = key k (ui_leds: a steady brighter glow than the other steps', bsp/boards/fm1/fm1_input.h
  * fm1_led_mid): the first step of each group of four on the page shown, steps 1 5 9 13 of 16 ("5111 5111 5111 5111"),
  * within LEN, where grid_leds shows no hit (the lane's, its accents while ACC is held) and not the playhead. Always
  * groups of four from the pattern's first step, whatever LEN or DIV (a 3/4 or a DIV 1/8 pattern too): the steps are
@@ -331,9 +331,9 @@ static uint32_t scale_leds(uint32_t *root)
 
 static uint32_t song_leds(void);
 /* MENU > ANIM IDLE (1.2, Discussion #135): after IDLE_LEDS_MS without panel input (ui.c scrn.idle: a button or key
- * pressed or held, a knob turned; what SCREEN OFF counts) the LEDs play the idle animation (hal/fm1_led_anim.h
+ * pressed or held, a knob turned; what SCREEN OFF counts) the LEDs play the idle animation (bsp/boards/fm1/fm1_led_anim.h
  * fm1_idle_level: a soft light drifting over the keys and back, the buttons breathing with it; the scan draws it,
- * hal/fm1_input.h fm1_led_idle_start). Only with nothing going on: stopped (no count-in, no song, nothing armed or
+ * bsp/boards/fm1/fm1_input.h fm1_led_idle_start). Only with nothing going on: stopped (no count-in, no song, nothing armed or
  * waiting to start), no layer (held or locked), menu, dialog, NAME or UPDATE countdown, no key held or lit by the
  * selected track (MIDI IN notes), not with ANIM OFF. Any input ends it at once and is not swallowed (as SCREEN OFF's
  * wake would be): a key or a button down ends it in the scan before its next frame (the press acts as ever), a knob
@@ -377,17 +377,17 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
 
 /* The LEDs: lit = active (the page's family, PLAY / REC running, the keys held or playing, a map's keys), the ARP
  * beat flashes, the ones that can be pressed breathe (#119: the open layer's button, OCT+ when it would act, a
- * layer's keys; dark .. ~60 % of lit and back, hal/fm1_input.h fm1_led_breath, in every mode: never a hard blink in
+ * layer's keys; dark .. ~60 % of lit and back, bsp/boards/fm1/fm1_input.h fm1_led_breath, in every mode: never a hard blink in
  * a dark room; DIM LO up to ~30 %, DIM HI OFF INV ~60 %; with LEDS OFF it is the only glow; INV leaves it as it is,
  * between the dark active ones and the lit idle ones), every other button and key glows dim (#35: the
- * buttons of the black FM-1 can be found in the dark; hal/fm1_input.h fm1_led_dim, a short pulse each frame).
+ * buttons of the black FM-1 can be found in the dark; bsp/boards/fm1/fm1_input.h fm1_led_dim, a short pulse each frame).
  * MENU > LEDS: DIM HI (default) that glow, DIM LO a darker one (fm1_led_dim_level), OFF no glow (as 1.0); INV
  * turns it around, as the stock firmware: the idle ones fully lit, the active ones dark, no glow (the ARP beat:
  * lit / dark). The keys' own maps (keys_own) stay lit or dark in every mode: their dark keys read as dark; only the
  * DRUM grid's keys that do something (grid_glow) glow under it, so STEP on a DRUM track is never a dark
  * keyboard (the steps of an empty pattern); on it the first step of each four (grid_beats: 1 5 9 13 of a page, where
  * no hit shows) glows steadier and brighter, so a bar's beats can be counted: DIM HI / DIM LO the mid level
- * (hal/fm1_input.h fm1_led_mid: lit 1 frame in 8, DIM LO in 12, over the glow), OFF and INV the glow alone (no
+ * (bsp/boards/fm1/fm1_input.h fm1_led_mid: lit 1 frame in 8, DIM LO in 12, over the glow), OFF and INV the glow alone (no
  * other key glows there). 1.2, MENU > SCALE LEDS ON (scale_leds; not over a map of the keys' own, nor on a DRUM or
  * SLICE track): the keys of the selected track's scale glow and the others are dark, the root's at the mid level, in
  * DIM HI, DIM LO and OFF alike (asked for: OFF only takes the other glow away); INV turns it around as it does the

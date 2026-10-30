@@ -904,7 +904,7 @@ static int pc_test(void)
                 ok &= k == P_E0 || dr->p[k] == was.p[k];
             last = dr->p[P_E0];
         }
-        ok &= n == 9u && last == d->max;                 /* (1.5.6, #216: DEEP TIGHT PERC 6..8) */
+        ok &= n == 9u + FELUCCA_SHDRUM && last == d->max;   /* (1.5.6, #216: DEEP TIGHT PERC 6..8; SH 9) */
         pc(3, DK_COUNT + 2u); frame();
         ok &= dr->p[P_E0] == last;
         bad += check("  DRUM: 0..8 the nine kits (STD 80 10 66 55 77 DEEP TIGHT PERC; HAND CYM H+CYM skipped), only KIT; 9.. ignored", ok);

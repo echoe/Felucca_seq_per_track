@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 gospodindilly-ops */
 /* The second core on the host (after Jangada's tests/c1_host.h, github.com/zednaked/jangada, GPL-3.0): a thread plays
- * core 1 (hal/fm1_cpu1.h) and renders the parts fx.c mix_block hands it, at the same time as the main thread renders
+ * core 1 (bsp/chip/fm1_cpu1.h) and renders the parts fx.c mix_block hands it, at the same time as the main thread renders
  * the others. Included before the firmware: tests/dualcore_test.c, tests/regress.c built with -DC1_HOST
  * (run_tests.sh). Built with -fsanitize=thread, any state two parts share while they render is reported as a race.
  * env C1_MASK: which parts go to the thread each block: "auto" (fx.c mix_split, the firmware's choice), "rot"
