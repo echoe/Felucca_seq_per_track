@@ -228,6 +228,12 @@ static const uint8_t MIDI_CC_ENG[NENGINES] = {
 #if FELUCCA_SHDRUM
     0x48,                                             /* SHDRUM DPTH DRV */
 #endif
+#if FELUCCA_SWARM
+    0x80,                                             /* SWARM CUT (no resonance control) */
+#endif
+#if FELUCCA_FMTONE
+    0x57,                                             /* FMTONE HARM, FB */
+#endif
 };
 /* a CC sets parameter id of track t as a knob would: 0..127 over its range */
 static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)

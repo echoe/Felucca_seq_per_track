@@ -18,7 +18,7 @@ static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u || e == 
  * L LEAD, P PAD, U PLUCK, K KEYS, D DRUM, F FX, O OTHER); a preset past its string (DIGITAL's, FELUCCA_FM4 builds
  * only; SAMPLE's retired PERC, past SMP_NPRESETS): its engine's (cat_of_engine). tests/ui_test.c checks every string
  * against its engine's preset count. A preset's category is a hint for browsing: nothing else reads it */
-static const char *const PRESET_CAT[16] = {
+static const char *const PRESET_CAT[17] = {
     "LPBPBKLBULLP",              /* 0 ANALOG: SAW LEAD, SOFT PAD, SQR BASS, PWM STR, ACID, SINE KEY, RAVE, SUB BASS,
                                   * PLUCK, BRASS, WIND, STRINGS */
     "",                          /* 1 DIGITAL (retired) */
@@ -41,6 +41,12 @@ static const char *const PRESET_CAT[16] = {
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
 #if FELUCCA_SHDRUM
     "DDDDDDDD",                  /* 14 SHDRUM: SH KICK, SH SNARE, SH HAT, SH OPEN HAT, SH TOM, SH CLAP, SH BELL, SH ZAP */
+#endif
+#if FELUCCA_SWARM
+    "LPBLLPLLF",                 /* 15 SWARM: SUPER LEAD, DRIFT PAD, SUB SWARM, FIZZ ARP, HOOVER, GLASS SWARM, RESO SWEEP, SINE RING, SELF ZAP */
+#endif
+#if FELUCCA_FMTONE
+    "KUBLPLUP",                  /* 16 FMTONE: TINE EP, BELL, FM BASS, BRASS, GLASS PAD, PLUCK LEAD, RESO PLUCK, FIFTH RING */
 #endif
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */

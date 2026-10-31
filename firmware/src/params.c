@@ -78,6 +78,12 @@ static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-",
 #if FELUCCA_SHDRUM
                                              "SHDRUM",
 #endif
+#if FELUCCA_SWARM
+                                             "SWARM",
+#endif
+#if FELUCCA_FMTONE
+                                             "FMTONE",
+#endif
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -225,8 +231,30 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DRREV] = PD("-", F_INT, 0, 0, 0),
 };
 
+/* the FM operator slots as SWARM / FMTONE name them (eng_swarm.c swm_xdesc, eng_fmtone.c fmt_xdesc; ported from Mini-Tone, where
+ * engine_t.tdesc does it): engine index e, parameter id; 0 = not one of the engine's own (TP's descriptor then) */
+static const param_desc_t *eng_xdesc(uint32_t e, uint32_t id)
+{
+    if (id < P_FM1_ATK || id > P_FM4_LEVEL)
+        return 0;
+#if FELUCCA_SWARM
+    if (e == ENGI_SWARM)
+        return swm_xdesc(id);
+#endif
+#if FELUCCA_FMTONE
+    if (e == ENGI_FMTONE)
+        return fmt_xdesc(id);
+#endif
+    return 0;
+}
+
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL) {         /* the operator slots as SWARM / FMTONE name them */
+        const param_desc_t *d = eng_xdesc(eng_idx(t->eng_req), id);
+        if (d)
+            return d;
+    }
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
@@ -249,6 +277,11 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    {
+        const param_desc_t *x = eng_xdesc(e, id);        /* (SWARM, FMTONE: their operator slots' range) */
+        if (x)
+            return x;
+    }
 #if FELUCCA_SHDRUM
     if (e == ENGI_SHDRUM && id >= SHP_AATK && id < SHP_END)   /* SHDRUM's slots among the FM operator ids (eng_shdrum.c) */
         return shd_xdesc(id);
@@ -455,6 +488,7 @@ typedef struct {
     const char *title;
     uint8_t fam, scope, graph;
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
+    uint8_t own;                 /* the engine index + 1 the page belongs to (shown for it only: ui.c page_visible), 0 = any */
 } page_t;
 
 static const page_t PAGES[] = {
@@ -496,6 +530,19 @@ static const page_t PAGES[] = {
     {"SK TUNE", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0, SKP_TUN0 + 1, SKP_TUN0 + 2, SKP_TUN0 + 3}},
     {"SK TUNE 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0 + 4, SKP_TUN0 + 5, SKP_TUN0 + 6, SKP_TUN0 + 7}},
     {"SK KIT", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_DPT, SKP_SWP, SKP_CRS, SKP_FLD}},
+#endif
+#if FELUCCA_SWARM
+    /* SWARM's (eng_swarm.c, ported from Mini-Tone): the resonant voice filter: TYPE, CUT (EDIT 2's), RES and KEY (FM operator slots) */
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E7, P_FM1_REL, P_FM1_ATK}, ENGI_SWARM + 1},
+#endif
+#if FELUCCA_FMTONE
+    /* FMTONE's (eng_fmtone.c): operator A's and B's envelopes, their delays and key tracking, the fine tuning, the filter; all
+     * operator slots under its own names (fmt_xdesc) */
+    {"A ENV", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_LEVEL}, ENGI_FMTONE + 1},
+    {"B ENV", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_LEVEL}, ENGI_FMTONE + 1},
+    {"DEL TRK", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_REL, P_FM2_REL, P_FM3_ATK, P_FM3_DEC}, ENGI_FMTONE + 1},
+    {"FINE", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM3_REL, P_FM4_ATK, P_FM4_DEC, 0xFF}, ENGI_FMTONE + 1},
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL}, ENGI_FMTONE + 1},
 #endif
     {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */

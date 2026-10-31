@@ -434,6 +434,8 @@ static uint32_t layer_btn(void);
  * track's (its patch's operators, ui_fm6op.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].own)                                 /* an engine's own page (SWARM, FMTONE: params.c) */
+        return TSEL->eng_req % NENGINES == (uint32_t)PAGES[i].own - 1u;
 #if FELUCCA_SHDRUM
     if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'H' && PAGES[i].title[2] == ' ')   /* SHDRUM's pages (params.c) */
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SHDRUM;
@@ -1400,6 +1402,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     if (e == &ENG_DRUM)                               /* DRUM: the kit's lane sounds (KIT SH, eng_drum.c) */
         shk_load(t, pi);
 #endif
+    fmt_track_loaded(t);                              /* FMTONE: the preset's operator slots (eng_fmtone.c) */
+    swm_track_loaded(t);                              /* SWARM: the preset's filter (RES, KEY, TYPE) */
     load_end(t);
 }
 

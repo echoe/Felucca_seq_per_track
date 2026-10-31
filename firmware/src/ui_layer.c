@@ -74,7 +74,8 @@ static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l =
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
 #define LY_COMBO 4u                    /* .. by a combo */
 #define LY_DEAD 8u                     /* .. pressed where there is no layer: does nothing */
-#define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
+#define LY_INIT ((uint32_t)(NENG_SHOWN < 14 ? NENG_SHOWN : 14))   /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell;
+                                  * the engines past the 14th (SWARM, FMTONE) have no key: KNOB 1 ENG, the PRESETS ENG knob and the editor reach them */
 #define LY_CLEAN (LY_INIT + 1u)         /* .. and CLEAN INIT's, the next (1.5.5, #190: F5) */
 typedef char ly_init_fits[LY_CLEAN < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */

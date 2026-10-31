@@ -449,6 +449,14 @@ if [ -f build/gen/felucca_tables.h ]; then
     # SHDRUM (tests/shdrum_test.c): the two-layer drum engine (src/eng_shdrum.c)
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/shdrum_test" tests/shdrum_test.c -lm
     run "SHDRUM: presets (level, DC, end, repeatable), every control, the sweep, corners, isolation, demos" "$OUT/shdrum_test" build/shdrum_demo
+    # SWARM and FMTONE (tests/swarm_test.c, tests/fmtone_test.c, tests/fmtone_project_test.c): the engines ported from Mini-Tone
+    # (src/eng_swarm.c, src/eng_fmtone.c, the resonant filter src/rsvf.c); the checks are Mini-Tone's, with this tree's engine numbers
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/swarm_test" tests/swarm_test.c -lm
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fmtone_test" tests/fmtone_test.c -lm
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/fmtone_project_test" tests/fmtone_project_test.c -lm
+    run "SWARM: pitch and octave, MIX 0 = main alone, detune spread, ANIM / NOIS movement, waveforms, 4-voice cap, corners (DC, headroom), level, determinism, cost" "$OUT/swarm_test"
+    run "FMTONE: ratios, carriers per algorithm, MIX, modulation, A / B envelopes, FB, HARM, TRK, FTO / DTN, 6-voice cap, descriptors, corners, level, determinism" "$OUT/fmtone_test"
+    run "FMTONE through the project store: negative FTO kept, clamped to its own range (TP's for other engines)" "$OUT/fmtone_project_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo

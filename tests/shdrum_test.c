@@ -90,7 +90,7 @@ int main(int argc, char **argv)
     const char *dir = argc > 1 ? argv[1] : 0;
     uint32_t pi, np = ENGINES[ENGI_SHDRUM]->npresets;
     int bad;
-    chk("engine table", ENGINES[ENGI_SHDRUM] == &ENG_SHDRUM && ENGI_SHDRUM == NENGINES - 1 && np == 8);
+    chk("engine table", ENGINES[ENGI_SHDRUM] == &ENG_SHDRUM && ENGI_SHDRUM == 14u && np == 8);
 
     /* 1. presets */
     bad = 0;

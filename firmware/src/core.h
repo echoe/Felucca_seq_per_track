@@ -45,7 +45,20 @@
 #if FELUCCA_SHDRUM && !FELUCCA_SLICE
 #error "FELUCCA_SHDRUM needs FELUCCA_SLICE (SHDRUM is engine 14)"
 #endif
-#define NENGINES (13 + FELUCCA_SLICE + FELUCCA_SHDRUM)   /* SLICE (13), SHDRUM (14) come last: the other engines keep their numbers */
+#ifndef FELUCCA_SWARM
+#define FELUCCA_SWARM FELUCCA_SHDRUM   /* the SWARM engine (eng_swarm.c, ported from Mini-Tone), engine 15, after SHDRUM: the engine numbers are stored,
+                                  * so each needs the one before it. FELUCCA_SWARM=0 builds without it (and FELUCCA_FMTONE with it) */
+#endif
+#if FELUCCA_SWARM && !FELUCCA_SHDRUM
+#error "FELUCCA_SWARM is engine 15 and needs the SHDRUM engine (14): build with FELUCCA_SHDRUM=1, or FELUCCA_SWARM=0"
+#endif
+#ifndef FELUCCA_FMTONE
+#define FELUCCA_FMTONE FELUCCA_SWARM   /* the FMTONE engine (eng_fmtone.c, ported from Mini-Tone), engine 16; it needs SWARM (15) */
+#endif
+#if FELUCCA_FMTONE && !FELUCCA_SWARM
+#error "FELUCCA_FMTONE is engine 16 and needs the SWARM engine (15): build with FELUCCA_SWARM=1, or FELUCCA_FMTONE=0"
+#endif
+#define NENGINES (13 + FELUCCA_SLICE + FELUCCA_SHDRUM + FELUCCA_SWARM + FELUCCA_FMTONE)   /* SLICE (13), SHDRUM (14), SWARM (15), FMTONE (16) come last: the other engines keep their numbers */
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define NENG_SHOWN (NENGINES - !FELUCCA_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
                                                 * in the display order of engines.c ENGINE_ORDER */
@@ -126,6 +139,8 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
 #define ENGI_SHDRUM 14u
+#define ENGI_SWARM 15u           /* (eng_swarm.c, ported from Mini-Tone) */
+#define ENGI_FMTONE 16u          /* (eng_fmtone.c) */
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
  * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */

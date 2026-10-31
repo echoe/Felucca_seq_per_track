@@ -110,6 +110,8 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     if (e == ENGI_DRUM)                           /* DRUM: the kit's lane sounds (KIT SH; ui.c apply_preset_to) */
         shk_load(t, pi);
 #endif
+    fmt_track_loaded(t);                          /* FMTONE: the preset's operator slots (ui.c apply_preset_to) */
+    swm_track_loaded(t);                          /* SWARM: the preset's filter */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {

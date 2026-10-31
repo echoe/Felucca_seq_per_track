@@ -32,6 +32,12 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"EDIT 1", H_EDIT},
     {"EDIT 2", H_EDIT},
     {"FILTER", "[K1]LP BP HP[K2]CUTOFF[EDIT]VOICE"},
+#if FELUCCA_FMTONE
+    {"A ENV", "[K1]ATTACK[K2]DECAY[K3]END[K4]LEVEL[EDIT]B ENV"},
+    {"B ENV", "[K1]ATTACK[K2]DECAY[K3]END[K4]LEVEL[EDIT]DEL TRK"},
+    {"DEL TRK", "[K1]DELAY A[K2]DELAY B[K3]TRACK A[K4]TRACK B"},
+    {"FINE", "[K1]TUNE A[K2]TUNE B1[K3]TUNE B2"},
+#endif
     {"LANES", H_LANES},
     {"LANES 2", H_LANES},
 #if FELUCCA_SHDRUM

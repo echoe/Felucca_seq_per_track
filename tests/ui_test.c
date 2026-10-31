@@ -46,7 +46,8 @@ static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty
 #define main hostsim_main
 #include "hostsim.c"
 #undef LAST_ENG
-#define LAST_ENG (FELUCCA_SHDRUM ? ENGI_SHDRUM : ENGI_DRUM)   /* the last engine one can pick (engines.c ENGINE_ORDER) */
+#define LAST_ENG (FELUCCA_FMTONE ? ENGI_FMTONE : FELUCCA_SWARM ? ENGI_SWARM : FELUCCA_SHDRUM ? ENGI_SHDRUM : ENGI_DRUM)   /* the last engine one can pick (engines.c ENGINE_ORDER) */
+#define LAST_KEY_ENG eng_vis(LY_INIT - 1u)   /* the engine on the last white key of the EDIT layer (ui_layer.c: the engines past the 14th have none) */
 #undef main
 
 /* ------------------------------------------------------------ HAL stubs --- */
@@ -1479,8 +1480,12 @@ static int test_categories(void)
         turn(EN_K4, -1);
     }
     {   /* #197: LIST / FAV not written on every detent (a flash erase stops the LED scan: the whole panel flashed) */
-        uint32_t m0 = list_mode();
+        uint32_t m0;
         int ok2;
+        set_engine_of(TSEL, 0);                            /* (an engine with favourites: the ones past row 13 - SHDRUM, SWARM, FMTONE - have none,
+                                                            * so a FAV press on one of their presets writes nothing) */
+        TSEL->preset = 0;
+        m0 = list_mode();
         set_later.on = 0;
         frames(200);
         turn(EN_K4, 1);
@@ -4049,12 +4054,12 @@ static int test_quick_layers(void)
     key_up(white(eng_rank(2))); frame();
     key_down(white(1)); key_up(white(1)); frame();
     ok &= TSEL->eng_req == ENGI_FM6;                    /* (G3: FM6, second in ENGINE_ORDER) */
-    key_down(white(NENG_SHOWN - 1u)); key_up(white(NENG_SHOWN - 1u)); frame();
-    ok &= TSEL->eng_req == LAST_ENG;                    /* (the last key: SHDRUM; DRUM without it) */
+    key_down(white(LY_INIT - 1u)); key_up(white(LY_INIT - 1u)); frame();
+    ok &= TSEL->eng_req == LAST_KEY_ENG;                /* (the last key: SHDRUM; SWARM and FMTONE come after the keys) */
     ok &= !memcmp(TSEL->step, before.step, sizeof before.step) && TSEL->p[P_SLEN] == before.p[P_SLEN] &&
           TSEL->p[P_SLCR] == SL_STUT;
     btn_up(B_EDIT); frame();
-    bad += check("EDIT + white key n: the n-th engine shown (FM6 2nd, SHDRUM last), while playing; steps, LEN, SLICER stay", ok);
+    bad += check("EDIT + white key n: the n-th engine shown (FM6 2nd, SHDRUM on the last key), while playing; steps, LEN, SLICER stay", ok);
     hold(B_SAVE);
     bad += check("  SAVE held: UNDO back to before the layer's loads, the steps untouched",
                  TSEL->eng_req == 0u && TSEL->preset == before.preset && !memcmp(TSEL->step, before.step, sizeof before.step));
@@ -4063,12 +4068,12 @@ static int test_quick_layers(void)
     btn_down(B_EDIT); frames(480);
     for (i = 0; i < LY_INIT; i++) {
         key_down(white(i)); key_up(white(i)); frame();
-        a += i < NENG_SHOWN ? TSEL->eng_req == eng_vis(i) : 0u;
+        a += i < NENG_SHOWN ? TSEL->eng_req == eng_vis(i) : 0u;   /* (LY_INIT keys: the first 14 engines) */
         ok &= eng_ok(TSEL->eng_req);
     }
     btn_up(B_EDIT); frame();
-    bad += check("  every engine one can pick has its white key from F3 (NENG_SHOWN, not a fixed count; never DIGITAL)",
-                 ok && a == NENG_SHOWN);
+    bad += check("  every engine one can pick has its white key from F3 (LY_INIT of them: the first 14 shown; never DIGITAL)",
+                 ok && a == LY_INIT);
     set_engine_of(TSEL, 0);
     lay_combo(B_EDIT, white(eng_rank(3))); key_up(white(eng_rank(3))); frame();
     turn(EN_K2, 1);
@@ -4909,8 +4914,8 @@ static int test_bughunt_ui2(void)
         bad += check("piano roll: the C-1 label stays inside the panel (every palette)", !out);
     }
     {   /* 7. EDIT: INIT is drawn in the cell after the engines, and that cell's white key is the one that inits */
-        uint32_t p, ok = LY_INIT == NENG_SHOWN && LY_INIT < 16u;      /* (layer_edit: INIT in cell NENG_SHOWN) */
-        for (p = NENG_SHOWN; p < 16u; p++) {
+        uint32_t p, ok = LY_INIT == (NENG_SHOWN < 14u ? NENG_SHOWN : 14u) && LY_INIT < 16u;      /* (layer_edit: INIT in cell LY_INIT) */
+        for (p = LY_INIT; p < 16u; p++) {
             ui_power_on(); go_home(); frame();
             btn_down(B_EDIT); key_down(white(p)); frame(); frames(50);
             ok &= (ui.confirm == CF_INIT_SOUND) == (p == LY_INIT);
@@ -5067,6 +5072,12 @@ static int test_fm4_retired(void)
 #if FELUCCA_SHDRUM
                                             , "SHDRUM"
 #endif
+#if FELUCCA_SWARM
+                                            , "SWARM"
+#endif
+#if FELUCCA_FMTONE
+                                            , "FMTONE"
+#endif
         };
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
@@ -5082,7 +5093,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown ANALOG FM6 PHASE ... NOISE SLICE DRUM SHDRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown ANALOG FM6 PHASE ... NOISE SLICE DRUM SHDRUM SWARM FMTONE (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */

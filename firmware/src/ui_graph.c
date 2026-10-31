@@ -906,15 +906,23 @@ static void graph_fm6env(const track_t *t, uint16_t c)
     cv_text_r(228, 4 - GOY, &AF_S, b, T_TEXT, T_SURF);
 }
 
-#if FELUCCA_FM4
+#if FELUCCA_FMTONE
+#define ENG_IS_FMTONE(t) (ENGINES[(t)->eng_req % NENGINES] == &ENG_FMTONE)   /* (the redraw signature below) */
+#else
+#define ENG_IS_FMTONE(t) 0
+#endif
+#if FELUCCA_FM4 || FELUCCA_FMTONE
 /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
- * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
+ * these tables against it); FMTONE's are the same routings on C A B1 B2 (operators 1..4: graph_fmt below, tests/fmtone_test.c
+ * checks them against the engine's). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
  * and the row above the output bus (bits 4..5; row 0 = the carriers). FM_MOD: per destination operator d a
  * nibble at bit 4 d of the operators modulating it (bit k = operator k + 1). Operator 4 feeds itself (FB). */
 static const uint8_t FM_CELL[8][4] = {
     {0x00, 0x10, 0x20, 0x30}, {0x01, 0x11, 0x20, 0x22}, {0x01, 0x10, 0x20, 0x12}, {0x01, 0x12, 0x10, 0x20},
     {0x00, 0x10, 0x02, 0x12}, {0x00, 0x02, 0x04, 0x12}, {0x00, 0x02, 0x04, 0x14}, {0x00, 0x02, 0x04, 0x06}};
 static const uint16_t FM_MOD[8] = {0x0842, 0x00C2, 0x004A, 0x0806, 0x0802, 0x0888, 0x0800, 0x0000};
+#endif
+#if FELUCCA_FM4
 /* Modulators above what they modulate, the carriers on the bottom row over the output bus (an arrow out).
  * Carriers THEME with INK numerals, modulators RAISE with THEME ones; an operator at LEVEL 0: DIM numeral.
  * Routes by IDX: DIM at 0, MID, THEME from 64; op 4's feedback loop MID (DIM at FB 0). The knob just turned
@@ -960,6 +968,72 @@ static void graph_fm(const track_t *t, uint16_t c)
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "DIGITAL operator number in its box");
         cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
     }
+}
+#endif
+#if FELUCCA_FMTONE
+/* FMTONE's EDIT 1 and EDIT 2: the algorithm as a chart, as FM6's (graph_fm6) and DIGITAL's: C A B1 B2 in boxes, the modulators
+ * above what they modulate, the carriers on the bottom row over the output bus, B2's feedback loop. FM_CELL / FM_MOD (above)
+ * are the routings, FMT_CAR the carriers (bit k: operator k, C first): C alone in 1..4, C and B1 in 5, C A B1 in 6 and 7, all
+ * four in 8. A carrier is THEME with an INK letter, a modulator RAISE with a THEME one; a group at LEV 0 (A's, B's: the
+ * operator slots) a DIM letter and DIM routes out of it (MID under LEV 64, THEME above: its modulation level). The knob just
+ * turned in ACCENT: ALGO the label, RAT C / RAT A / RAT B C / A / B1 and B2, HARM the waves it changes (A and B1 up, C down),
+ * DTN A and B2, FB the loop, MIX the carriers besides C */
+static const uint8_t FMT_CAR[8] = {1, 1, 1, 1, 5, 7, 7, 15};
+static void graph_fmt(const track_t *t, uint16_t c)
+{
+    static const char *const NM[4] = {"C", "A", "B1", "B2"};
+    uint32_t alg = (uint32_t)t->p[P_E0] & 7u, k, j, mods = FM_MOD[alg], car = FMT_CAR[alg], hotset = 0, lo = 7, hi = 0, top = 0;
+    uint32_t hot = ui.hot_t ? (uint32_t)cur_page()->id[ui.hot_col & 3u] : 0u;
+    int32_t x[4], y[4], bus, cl = 240, cr = 0, lev[4] = {127, t->p[P_FM1_LEVEL], t->p[P_FM2_LEVEL], t->p[P_FM2_LEVEL]};
+    char b[7] = {'A', 'L', 'G', 'O', ' ', (char)('1' + alg), 0};
+    if (hot == P_E1) hotset = 1u;
+    else if (hot == P_E2) hotset = 2u;
+    else if (hot == P_E3) hotset = 12u;
+    else if (hot == P_E4) hotset = t->p[P_E4] > 0 ? 6u : t->p[P_E4] < 0 ? 1u : 0u;
+    else if (hot == P_E5) hotset = 10u;
+    else if (hot == P_E7) hotset = car & ~1u;
+    for (k = 0; k < 4u; k++) {
+        uint32_t col = FM_CELL[alg][k] & 7u, row = FM_CELL[alg][k] >> 4;
+        lo = col < lo ? col : lo; hi = col > hi ? col : hi; top = row > top ? row : top;
+    }
+    bus = 50 + (27 + 23 * (int32_t)top) / 2;         /* the chart centred on the 100 px scale */
+    for (k = 0; k < 4u; k++) {
+        x[k] = 120 + (int32_t)(FM_CELL[alg][k] & 7u) * 24 - (int32_t)(lo + hi) * 12;
+        y[k] = bus - 6 - FM_BH - 23 * (int32_t)(FM_CELL[alg][k] >> 4);
+        if (car >> k & 1u) { cl = x[k] < cl ? x[k] : cl; cr = x[k] > cr ? x[k] : cr; }
+    }
+    for (k = 0; k < 4u; k++) {                       /* into k: sources down to its jog row, across, down */
+        uint32_t m = (mods >> (4u * k)) & 15u;
+        for (j = 0; j < 4u; j++)
+            if (m >> j & 1u) {
+                uint32_t fan = mods & (0x1111u << j);
+                uint16_t rc = !lev[j] ? T_DIM : lev[j] < 64 ? T_MID : c;
+                FM6_CHART_HOOK(FMH_ROUTE, j, k);
+                fm_route(x[j], y[j] + FM_BH, x[k], y[k] - 3, y[k], rc);
+                if (fan & (fan - 1u)) fm_dot(x[j], y[k] - 3, rc);   /* one operator modulating several */
+            }
+        if (m & (m - 1u)) fm_dot(x[k], y[k] - 3, c);              /* several modulating one */
+        if (car >> k & 1u) {
+            FM6_CHART_HOOK(FMH_CAR, k, 0);
+            cv_rect(x[k], y[k] + FM_BH, 1, bus - y[k] - FM_BH, T_MID);
+            if (x[k] != cl) fm_dot(x[k], bus, T_MID);
+        }
+    }
+    FM6_CHART_HOOK(FMH_BUS, 0, 0);
+    fm_bus(cl, cr, bus);                             /* the output bus and its arrow */
+    FM6_CHART_HOOK(FMH_FB, 3, 0);
+    fm_loop(x[3], y[3], hot == P_E6 ? T_ACCENT : t->p[P_E6] ? T_MID : T_DIM);   /* B2's feedback */
+    for (k = 0; k < 4u; k++) {
+        uint32_t on = lev[k] != 0, fill_c = (car >> k & 1u) && on;
+        uint16_t f = hotset >> k & 1u ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
+        FM6_CHART_HOOK(FMH_BOX, k, 0);
+        cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
+        GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "FMTONE operator letter in its box");
+        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, NM[k], fill_c ? T_INK : on ? f : T_DIM, fill);
+    }
+    FM6_CHART_HOOK(FMH_LABEL, 0, 0);
+    cv_text(10, 4 - GOY, &AF_S, b, hot == P_E0 ? T_ACCENT : T_MID);
+    FM6_CHART_HOOK(FMH_END, alg, 0);
 }
 #endif
 /* Save-bank validity is expensive (CRC/import). Refresh it once per redraw or
@@ -1237,7 +1311,8 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
     if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
-                                   (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
+                                   (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL) ||
+                                   ENG_IS_FMTONE(t)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if ((pg->scope == SC_ENGINE || fop_page(pg->graph)) && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm,
                                                      * levels, FB; the operator pages: the operator, the stage) */
@@ -1273,7 +1348,8 @@ static const char *eng_abbr(const char *name)
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
                                        {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
-                                       {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"}};
+                                       {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
+                                       {"SWARM", "SWRM"}, {"FMTONE", "FMTN"}};
     uint32_t i;
     for (i = 0; i < sizeof A / sizeof A[0]; i++)
         if (str_eq(name, A[i][0]))
@@ -2508,6 +2584,9 @@ static void draw_graph(void)
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
+#if FELUCCA_FMTONE
+            else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_FMTONE) graph_fmt(t, c);   /* the same */
+#endif
 #if FELUCCA_FM4
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */

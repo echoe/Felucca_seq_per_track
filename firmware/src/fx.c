@@ -871,7 +871,14 @@ static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67
                                              129,
 #endif
 #if FELUCCA_SHDRUM
-                                             150
+                                             150,
+#endif
+#if FELUCCA_SWARM
+                                             190,   /* SWARM: 7 oscillators and a filter a voice (host ns per voice, tests/swarm_test.c: ANALOG 11.2, FM6 17.5, SWARM 20.6, FMTONE 11.8;
+                                                     * fitted to ANALOG's 163 and FM6's 181: an estimate that only steers the split) */
+#endif
+#if FELUCCA_FMTONE
+                                             165    /* FMTONE (see SWARM's) */
 #endif
 };
 #endif

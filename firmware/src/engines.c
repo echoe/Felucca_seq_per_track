@@ -43,6 +43,19 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #if FELUCCA_SHDRUM
 #include "eng_shdrum.c"         /* SHDRUM: a two-layer drum synth (after the SH-4D's rhythm part) */
 #endif
+#if FELUCCA_SWARM || FELUCCA_FMTONE
+#include "rsvf.c"               /* the resonant voice filter of SWARM and FMTONE (ported from Mini-Tone; dsp.c is the submodule's) */
+#endif
+#if FELUCCA_SWARM
+#include "eng_swarm.c"          /* SWARM: seven-oscillator super-saw cluster (ported from Mini-Tone; 4 voices a part) */
+#else
+static void swm_track_loaded(track_t *t) { (void)t; }
+#endif
+#if FELUCCA_FMTONE
+#include "eng_fmtone.c"         /* FMTONE: four-operator FM (C, A, B1, B2), ported from Mini-Tone (6 voices a part) */
+#else
+static void fmt_track_loaded(track_t *t) { (void)t; }
+#endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
@@ -68,6 +81,12 @@ static const engine_t *const ENGINES[NENGINES] = {
 #endif
 #if FELUCCA_SHDRUM
     &ENG_SHDRUM,                 /* 14 (ENGI_SHDRUM; FELUCCA_SHDRUM=0 builds without it) */
+#endif
+#if FELUCCA_SWARM
+    &ENG_SWARM,                  /* 15 (ENGI_SWARM; FELUCCA_SWARM=0 builds without it) */
+#endif
+#if FELUCCA_FMTONE
+    &ENG_FMTONE,                 /* 16 (ENGI_FMTONE; FELUCCA_FMTONE=0 builds without it; it needs SWARM) */
 #endif
 };
 
@@ -131,6 +150,12 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     10,                          /* DRUM */
 #if FELUCCA_SHDRUM
     ENGI_SHDRUM,                 /* SHDRUM */
+#endif
+#if FELUCCA_SWARM
+    ENGI_SWARM,                  /* SWARM (past the EDIT layer's 14 keys: ui_layer.c LY_INIT; KNOB 1 ENG, PRESETS and the editor reach it) */
+#endif
+#if FELUCCA_FMTONE
+    ENGI_FMTONE,                 /* FMTONE (as SWARM) */
 #endif
 };
 
