@@ -1291,23 +1291,37 @@ static int param_kept(uint32_t i)
 /* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
  * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for.
  * (SAMPLE 4, once PERC, is past SMP_NPRESETS: apply_preset_to loads it as DRUM) */
+#if FELUCCA_SAMPLE
+#define IS_SMP_TABLE(e) ((e)->presets == SMP_PRESET_TABLE)
+#else
+#define IS_SMP_TABLE(e) 0
+#endif
 static uint32_t preset_orig(const engine_t *e, uint32_t k)
 {
-    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+#if FELUCCA_SAMPLE
+    return IS_SMP_TABLE(e) && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+#else
+    (void)e;
+    return k;
+#endif
 }
 
 /* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
 static uint32_t preset_rank(const engine_t *e, uint32_t k)
 {
     uint32_t i, n = 0;
-    if (e->presets != SMP_PRESET_TABLE)
+    if (!IS_SMP_TABLE(e))
         return k;
     for (i = 0; i < k; i++)
         n += preset_orig(e, i) == i;
     return n;
 }
 
-#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
+#if FELUCCA_SAMPLE
+#define preset_shown(e) (ENGINES[e]->npresets - (IS_SMP_TABLE(ENGINES[e]) ? SMP_NALIAS : 0u))
+#else
+#define preset_shown(e) (ENGINES[e]->npresets)
+#endif
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1363,10 +1377,12 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     }
 #endif
+#if FELUCCA_SAMPLE
     if (t->eng_req % NENGINES == ENGI_SAMPLE && pi == SMP_SET_PERC) {   /* SAMPLE preset 4 was PERC (retired, a stored */
         set_engine_of(t, ENGI_DRUM);                  /* number: the editor's PRESET, a favourite): DRUM's kit */
         return;                                       /* (core.h drum_from_perc) */
     }
+#endif
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
     t->user = 0;
@@ -1404,6 +1420,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
 #endif
     fmt_track_loaded(t);                              /* FMTONE: the preset's operator slots (eng_fmtone.c) */
     swm_track_loaded(t);                              /* SWARM: the preset's filter (RES, KEY, TYPE) */
+    wvt_track_loaded(t);                              /* WAVETONE: the preset's slots */
     load_end(t);
 }
 

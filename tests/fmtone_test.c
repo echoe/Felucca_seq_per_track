@@ -189,7 +189,7 @@ int main(void)
     uint32_t i, k, note = 57;                    /* A3: 220 Hz */
     double f0 = hz_of(note);
 
-    check("the engine is number 16, 16 engines come before it (SWARM 15, SHDRUM 14)", ENGI_FMTONE == 16u && ENGINES[16] == &ENG_FMTONE && NENGINES == 17u);
+    check("the engine is number 16, 16 engines come before it (SWARM 15, SHDRUM 14)", ENGI_FMTONE == 16u && ENGINES[16] == &ENG_FMTONE && NENGINES == 17u + FELUCCA_WAVETONE);
 
     /* 1. ratios */
     {

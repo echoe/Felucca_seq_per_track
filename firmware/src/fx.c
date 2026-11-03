@@ -865,11 +865,9 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
  * when built, nothing when retired. An estimate: it only steers the split, the sound does not depend on it */
 #if FELUCCA_CPU2
 static uint16_t part_cost[NTRK];                        /* the last block's, per part */
-static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67, 70, 174, 144, 143, 189, 309, 113, 134,
+static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67, FELUCCA_SAMPLE ? 70 : 0, 174, 144, 143, FELUCCA_GRAIN ? 189 : 0, 309, 113, 134,
                                              181,
-#if FELUCCA_SLICE
-                                             129,
-#endif
+                                             FELUCCA_SLICE ? 129 : 0,   /* (SAMPLE, GRAIN, SLICE: 0 when retired) */
 #if FELUCCA_SHDRUM
                                              150,
 #endif
@@ -878,7 +876,10 @@ static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67
                                                      * fitted to ANALOG's 163 and FM6's 181: an estimate that only steers the split) */
 #endif
 #if FELUCCA_FMTONE
-                                             165    /* FMTONE (see SWARM's) */
+                                             165,   /* FMTONE (see SWARM's) */
+#endif
+#if FELUCCA_WAVETONE
+                                             178    /* WAVETONE (host ns per voice, tests/wavetone_test.c: ANALOG 9.9, FMTONE 11.2, WAVETONE 14.5; the same fit) */
 #endif
 };
 #endif

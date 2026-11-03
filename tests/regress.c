@@ -731,6 +731,7 @@ static int chk_mode_release(char *msg, uint32_t n)
     return !bad;
 }
 
+#if FELUCCA_SAMPLE
 static int chk_sample_end(char *msg, uint32_t n)
 {
     static const int32_t SAMPLE[4] = {12000, -12000, 32767, -32768};
@@ -770,6 +771,7 @@ static int chk_sample_end(char *msg, uint32_t n)
              cases);
     return !bad;
 }
+#endif
 
 /* a stolen voice fades: plain sines (filter open, no sends) on 3 parts; part 1 holds 7 notes, part 2 one,
  * then parts 2 and 3 take voices in turn. The largest sample step in the 2 blocks of each take must stay
@@ -1043,10 +1045,19 @@ int main(int argc, char **argv)
             j->pi = (uint8_t)pi;
         }
     add(J_DRUMS, "drums/drum_gm_kit");
+#if FELUCCA_DRUMX
+    for (i = 1; i < DX_NKIT; i++) {                 /* DRUM-X's other eight kits */
+        char ks[32];
+        slug(ks, N_DRUM_KIT[i], sizeof ks);
+        snprintf(name, sizeof name, "drums/kit_%s", ks);
+        add(J_DRUMS, name)->arg = (uint8_t)i;
+    }
+#else
     for (i = 0; i < DV_NKIT; i++) {                 /* the model kits (KIT 80 10 66 55 77) */
         snprintf(name, sizeof name, "drums/kit_%s", N_DRUM_KIT[DK_80 + i]);
         add(J_DRUMS, name)->arg = (uint8_t)(DK_80 + i);
     }
+#endif
     for (i = 0; i < 3u; i++)
         for (k0 = 0; k0 < 4u && eng_ok(MODE_E[i][0]); k0++) {
             job_t *j;
@@ -1089,7 +1100,9 @@ int main(int argc, char **argv)
     add(J_CHECK, "voices: budget after a live mode change")->check = chk_mode_budget;
     add(J_CHECK, "voices: budget after voice mode changes")->check = chk_cap_mode_budget;
     add(J_CHECK, "voices: note-offs after live voice mode changes")->check = chk_mode_release;
+#if FELUCCA_SAMPLE
     add(J_CHECK, "samples: high-rate one-shot ends")->check = chk_sample_end;
+#endif
     add(J_CHECK, "voices: a stolen voice fades")->check = chk_steal_fade;
     add(J_CHECK, "voices: MONO keeps its note")->check = chk_keep_mono;
     add(J_CHECK, "voices: LEGATO keeps its note")->check = chk_keep_legato;
@@ -1114,6 +1127,21 @@ int main(int argc, char **argv)
             j->e = (uint8_t)e;
             j->pi = (uint8_t)pi;
         }
+#if FELUCCA_DRUMX
+    for (i = 1; i < DX_NKIT; i++) {                 /* DRUM-X's other kits: the 8 lanes, as its preset above */
+        job_t *j;
+        char ks[32];
+        slug(ks, N_DRUM_KIT[i], sizeof ks);
+        snprintf(name, sizeof name, "cpu/DRUM/kit_%s", ks);
+        j = add(J_CPU, name);
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][0][0] = ENGI_DRUM, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = ENGI_DRUM;
+        j->pi = 0;
+        j->arg = (uint8_t)i;
+    }
+#else
     for (i = 0; i < DV_NKIT; i++) {                 /* DRUM's model kits: the 8 lanes, as its preset above */
         job_t *j;
         snprintf(name, sizeof name, "cpu/DRUM/kit_%s", N_DRUM_KIT[DK_80 + i]);
@@ -1125,6 +1153,7 @@ int main(int argc, char **argv)
         j->pi = 0;
         j->arg = (uint8_t)(DK_80 + i);
     }
+#endif
     {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 DRUM; SAMPLE PERC until 1.0.2), FM (DIGITAL with
          * FELUCCA_FM4, else FM6) + PHASE + VOICE asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
         job_t *j = add(J_CPU, "cpu/mix/idle");

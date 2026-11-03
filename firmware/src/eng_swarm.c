@@ -215,12 +215,14 @@ static const preset_t SWARM_PRESETS[] = {
     {"RESO SWEEP", {0, 0, 0, 40, 90, 30, 0, 35}, {0, 75, 60, 40}, 45, 1, FX(0, 15, 40, 30), PAT(2)},
     {"SINE RING", {3, 3, 0, 0, 0, 0, 0, 44}, {0, 70, 100, 40}, 0, 1, FX(0, 10, 35, 35), PAT(4)},
     {"SELF ZAP", {3, 3, 0, 0, 0, 0, 0, 30}, {0, 75, 0, 30}, 60, 0, FX(0, 0, 40, 35), PAT(0)},
+#include "presets_swarm.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 /* the filter of each preset (swm_track_loaded): RES, KEY, TYPE; zeros are the defaults */
 static const int8_t SWM_X[NELEM(SWARM_PRESETS)][3] = {
     [6] = {95, 64, 0},           /* RESO SWEEP */
     [7] = {127, 127, 0},         /* SINE RING */
     [8] = {127, 0, 0},           /* SELF ZAP */
+#include "presets_swarm_x.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 
 static const engine_t ENG_SWARM = {

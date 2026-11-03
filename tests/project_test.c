@@ -391,9 +391,15 @@ int main(void)
         memcpy(&buf, &v4, sizeof v4);
         ok = proj_import(&q2, &buf, (int)sizeof v4) && proj_ok(&q2) && q2.phys == PROJ_PHYS &&
              q2.t[0].engine == ENGI_DRUM && q2.t[0].preset == 0 && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM") &&
+#if FELUCCA_DRUMX
+             q2.t[0].p[P_E0] == 0 && q2.t[0].p[P_E6] == 0 && q2.t[0].p[P_E7] == 64 && q2.t[0].p[P_E5] == 0;   /* DRUM-X's first kit */
+        for (i = 1; i < 5u; i++)
+            ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY NOIS in place */
+#else
              q2.t[0].p[P_E0] == 2 && q2.t[0].p[P_E6] == 1 && q2.t[0].p[P_E7] == 0;
         for (i = 1; i < 6u; i++)
             ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY SNAP ACC in place */
+#endif
         ok &= q2.t[1].engine == ENGI_PHYS && !memcmp(q2.t[1].p, q.t[1].p, sizeof q.t[1].p);
         ok &= q2.t[3].engine == ENGI_PHYS && !memcmp(q2.t[3].p, q.t[3].p, sizeof q.t[3].p);
         ok &= q2.t[2].engine == ENGI_DRUM;              /* the old DRUM KIT: DRUM's DRUM KIT */
@@ -674,7 +680,7 @@ int main(void)
                     (c).t[0].engine == ENGI_SAMPLE && (c).t[0].p[P_E0] == 2 && (c).t[1].engine == ENGI_SAMPLE)
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
         bad += check("FUN8 with a SAMPLE PERC track: DRUM's kit, the rest of the sound and the steps kept", ok && PERC_OK(c) &&
-                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM KIT") &&
+                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, FELUCCA_DRUMX ? "DRUM-X" : "DRUM KIT") &&
                      !memcmp(ENGINES[ENGI_DRUM]->presets[0].e, (int8_t[8])DRUM_KIT_E, 8));
         bad += check("  its motion on CUT goes; a send's and the other track's stay",
                      c.motion.count == 2u && c.motion.event[0].param == P_REV && c.motion.event[1].place == 3u &&

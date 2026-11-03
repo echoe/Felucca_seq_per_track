@@ -112,6 +112,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
 #endif
     fmt_track_loaded(t);                          /* FMTONE: the preset's operator slots (ui.c apply_preset_to) */
     swm_track_loaded(t);                          /* SWARM: the preset's filter */
+    wvt_track_loaded(t);                          /* WAVETONE: the preset's slots */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {

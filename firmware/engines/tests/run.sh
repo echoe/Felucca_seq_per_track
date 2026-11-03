@@ -23,6 +23,34 @@ else
     exit 1
 fi
 
+# The plugins (src/felucca_plugin.h): the six engines built as shared libraries, loaded at run time, the same renders
+for f in plugins/*.c; do sh tools/build_plugin.sh "$f" build/plugins > /dev/null; done
+${CC:-cc} -O2 -std=c99 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Ibuild \
+    -o build/plugin_test tests/plugin_test.c $( [ "$(uname)" = Linux ] && echo -ldl )
+build/plugin_test build/plugins > build/plugin_renders.txt
+if diff -u tests/golden.txt build/plugin_renders.txt; then
+    echo "ok: the plugins render as the built-in engines ($(wc -l < tests/golden.txt | tr -d ' ') renders)"
+else
+    echo "FAIL: a plugin renders otherwise than its engine built in"
+    exit 1
+fi
+# the same plugins on the host's tables (--shared, as the FM-1 builds them)
+for f in plugins/*.c; do SHARED=1 sh tools/build_plugin.sh "$f" build/plugins_shared > /dev/null; done
+build/plugin_test build/plugins_shared > build/plugin_renders_shared.txt
+if diff -u tests/golden.txt build/plugin_renders_shared.txt; then
+    echo "ok: the plugins on the host's tables render as the built-in engines"
+else
+    echo "FAIL: a plugin on the host's tables renders otherwise than its engine built in"
+    exit 1
+fi
+
+# the examples: each built and played (every preset sounds, within full scale)
+for f in examples/*/*.c; do
+    lib=$(sh tools/build_plugin.sh "$f" build/examples)
+    build/plugin_test --one "$lib" || { echo "FAIL: the example $f"; exit 1; }
+done
+echo "ok: the examples play"
+
 # ANALOG signed scaling: frozen audio hash, then the same sweep without UBSan exclusions.
 ${CC:-cc} -O2 -std=c99 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Ibuild \
     -o build/analog_signed_test tests/analog_signed_test.c

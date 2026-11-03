@@ -85,8 +85,8 @@ static const uint8_t FM4_TO_FM6[FM4_NPRESETS] = {0, 1, 2, 3, 6, 4, 5, 7};
         {l4, F_PCT, 0, 127, 60, 0, 0}, {l5, f1, 0, 127, 60, 0, 0}, {l6, F_PCT, 0, 127, 0, 0, 0},               \
         {"-", F_INT, 0, 0, 0, 0, 0}}
 
-#if !FELUCCA_FM4
-/* engine 1 without the DSP: never selectable, no presets, silent (a track never keeps it: fm4_convert) */
+/* an engine slot without the DSP (engine 1 without FELUCCA_FM4: its sounds convert, a track never keeps it; 4, 8 and 13 without the sample
+ * engines: a track keeps the engine and its values and is silent): never selectable, no presets */
 static void fm4_gone_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
 static void fm4_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
@@ -100,7 +100,6 @@ static const engine_t ENG_FM4_GONE = {
     .render = fm4_gone_render,
     .knob = {P_E4, P_E5, P_E6, P_REL},
 };
-#endif
 
 /* ------------------------------------------------------- conversion --- */
 #define FM4_MUTE (-100000)       /* the microsteps of silence */

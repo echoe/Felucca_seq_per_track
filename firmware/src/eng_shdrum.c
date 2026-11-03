@@ -172,6 +172,7 @@ static const preset_t SHD_PRESETS[] = {
     {"SH BELL", {SHW_SIN, SHW_SIN, SHM_FM, 70, 19, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 34)},
     /* a laser: a square with a deep, slow sweep */
     {"SH ZAP", {SHW_SQR, SHW_SAW, SHM_RING, 64, 5, 36, 50, 48}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 6, 20)},
+#include "presets_shdrum.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 #define SHD_NPRESETS NELEM(SHD_PRESETS)
 static const int8_t SHD_PRESET_X[SHD_NPRESETS][SHP_N] = {
@@ -184,6 +185,7 @@ static const int8_t SHD_PRESET_X[SHD_NPRESETS][SHP_N] = {
     {0, 62, 100, 0, 56, 100, 0, 30, 0, SHF_BP, 80, 50, 0},      /* CLAP */
     {0, 90, 90, 0, 76, 40, 0, 0, 0, SHF_OFF, 100, 20, 0},       /* BELL */
     {0, 70, 100, 0, 60, 80, 0, 0, 0, SHF_OFF, 100, 20, 0},      /* ZAP */
+#include "presets_shdrum_x.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 
 /* a factory preset's slots, and the slots' defaults (a clean init): called with the engine's sound loaded

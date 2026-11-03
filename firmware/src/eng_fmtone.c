@@ -358,6 +358,7 @@ static const preset_t FMT_PRESETS[] = {
     /* the resonant filter: a plucked lead through a Q of 12 the envelope opens; a bell with the filter ringing a fifth above it */
     {"RESO PLUCK", {2, 3, 6, 4, 0, 4, 15, 127}, {0, 75, 60, 40}, 40, 1, FX(0, 15, 40, 30), PAT(4)},
     {"FIFTH RING", {0, 3, 3, 3, 0, 0, 0, 127}, {0, 90, 70, 60}, 0, 0, FX(0, 20, 30, 50), PAT(5)},
+#include "presets_fmtone.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 static const fmt_x_t FMT_X[NELEM(FMT_PRESETS)] = {
     {{0, 85, 12, 0, 42}, {0, 55, 0, 0, 30}, {25, 0}, {0, 0, 0}},       /* TINE EP: a bright start that mellows */
@@ -368,6 +369,7 @@ static const fmt_x_t FMT_X[NELEM(FMT_PRESETS)] = {
     {{0, 55, 30, 0, 32}, {0, 45, 0, 0, 40}, {25, 0}, {0, 0, 0}},       /* PLUCK LEAD */
     {{0, 55, 30, 0, 32}, {0, 45, 0, 0, 40}, {25, 0}, {0, 0, 0}, {90, 77, 27, 0}},    /* RESO PLUCK: CUT 50, KEY 100 % */
     {{0, 90, 20, 0, 24}, {0, 80, 0, 0, 14}, {0, 0}, {0, 0, 0}, {127, 75, 0, 0}},     /* FIFTH RING: CUT 52, KEY 127: G over the C */
+#include "presets_fmtone_x.inc"          /* (tools/gen_presets.py: more factory presets) */
 };
 
 static const engine_t ENG_FMTONE = {

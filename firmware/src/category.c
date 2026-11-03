@@ -18,7 +18,8 @@ static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u || e == 
  * L LEAD, P PAD, U PLUCK, K KEYS, D DRUM, F FX, O OTHER); a preset past its string (DIGITAL's, FELUCCA_FM4 builds
  * only; SAMPLE's retired PERC, past SMP_NPRESETS): its engine's (cat_of_engine). tests/ui_test.c checks every string
  * against its engine's preset count. A preset's category is a hint for browsing: nothing else reads it */
-static const char *const PRESET_CAT[17] = {
+#include "presets_cat.h"                 /* PCAT_<ENGINE>: the categories of the presets tools/gen_presets.py added ("" = none) */
+static const char *const PRESET_CAT[18] = {
     "LPBPBKLBULLP",              /* 0 ANALOG: SAW LEAD, SOFT PAD, SQR BASS, PWM STR, ACID, SINE KEY, RAVE, SUB BASS,
                                   * PLUCK, BRASS, WIND, STRINGS */
     "",                          /* 1 DIGITAL (retired) */
@@ -31,7 +32,9 @@ static const char *const PRESET_CAT[17] = {
     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
-#if FELUCCA_SHDRUM
+#if FELUCCA_DRUMX
+    "DDDDDDDDD" PCAT_DRUM "DDD",              /* 10 DRUM (DRUM-X): DRUM-X, 909 CLUB, 808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS; SH KIT, SH PUNCH, SH DEEP */
+#elif FELUCCA_SHDRUM
     "DDDDDDD",                   /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT; SH KIT, SH PUNCH, SH DEEP */
 #else
     "DDDD",                      /* 10 DRUM: DRUM KIT; 1.5.6: DEEP KIT, TIGHT KIT, PERC KIT */
@@ -40,13 +43,16 @@ static const char *const PRESET_CAT[17] = {
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
 #if FELUCCA_SHDRUM
-    "DDDDDDDD",                  /* 14 SHDRUM: SH KICK, SH SNARE, SH HAT, SH OPEN HAT, SH TOM, SH CLAP, SH BELL, SH ZAP */
+    "DDDDDDDD" PCAT_SHDRUM,      /* 14 SHDRUM: SH KICK, SH SNARE, SH HAT, SH OPEN HAT, SH TOM, SH CLAP, SH BELL, SH ZAP */
 #endif
 #if FELUCCA_SWARM
-    "LPBLLPLLF",                 /* 15 SWARM: SUPER LEAD, DRIFT PAD, SUB SWARM, FIZZ ARP, HOOVER, GLASS SWARM, RESO SWEEP, SINE RING, SELF ZAP */
+    "LPBLLPLLF" PCAT_SWARM,                 /* 15 SWARM: SUPER LEAD, DRIFT PAD, SUB SWARM, FIZZ ARP, HOOVER, GLASS SWARM, RESO SWEEP, SINE RING, SELF ZAP */
 #endif
 #if FELUCCA_FMTONE
-    "KUBLPLUP",                  /* 16 FMTONE: TINE EP, BELL, FM BASS, BRASS, GLASS PAD, PLUCK LEAD, RESO PLUCK, FIFTH RING */
+    "KUBLPLUP" PCAT_FMTONE,                  /* 16 FMTONE: TINE EP, BELL, FM BASS, BRASS, GLASS PAD, PLUCK LEAD, RESO PLUCK, FIFTH RING */
+#endif
+#if FELUCCA_WAVETONE
+    "LBUKPFDLLB" PCAT_WAVETONE,                /* 17 WAVETONE: SYNC LEAD, PWM BASS, RING BELL, HARM ORGAN, DRIFT PAD, WIND, NOISE HIT, RESO LEAD, SELF SINE, WAH BASS */
 #endif
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */

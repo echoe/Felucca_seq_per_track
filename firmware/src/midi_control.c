@@ -219,12 +219,10 @@ static const uint8_t MIDI_CC_MAP[][2] = {
 };
 /* per engine (ENGINES[] order): CC74's E index + 1 in the high nibble, CC71's in the low one, 0 = none */
 static const uint8_t MIDI_CC_ENG[NENGINES] = {
-    0x56, 0x00, 0x30, 0x80, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
-                                                       * TRIO CUT RES, WHEEL - */
-    0x80, 0x30, 0x30, 0x34, 0x30,                     /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
-#if FELUCCA_SLICE
-    0x80,                                             /* SLICE TONE */
-#endif
+    0x56, 0x00, 0x30, 0x80, FELUCCA_SAMPLE ? 0x50 : 0, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
+                                                       * TRIO CUT RES, WHEEL - (a retired engine's slot: 0) */
+    FELUCCA_GRAIN ? 0x80 : 0, 0x30, 0x30, 0x34, 0x30, /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
+    FELUCCA_SLICE ? 0x80 : 0,                         /* SLICE TONE */
 #if FELUCCA_SHDRUM
     0x48,                                             /* SHDRUM DPTH DRV */
 #endif
@@ -233,6 +231,9 @@ static const uint8_t MIDI_CC_ENG[NENGINES] = {
 #endif
 #if FELUCCA_FMTONE
     0x57,                                             /* FMTONE HARM, FB */
+#endif
+#if FELUCCA_WAVETONE
+    0x26,                                             /* WAVETONE PD1 (CC74), PD2 (CC71) */
 #endif
 };
 /* a CC sets parameter id of track t as a knob would: 0..127 over its range */

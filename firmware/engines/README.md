@@ -18,6 +18,7 @@ Shared:
 
 - `src/felucca_engine.h`: the engine interface (parameter descriptors, the voice, its per-block
   modulation, presets, the engine table entry) and what a host must provide.
+- `src/felucca_plugin.h`, `src/felucca_plugin_fm1.h`: the plugin interface (below).
 - `src/dsp.c`: oscillators with polyBLEP, the state-variable filter, soft clipping, noise, the
   amplitude ramp (all `static inline`).
 - `tools/gen_engine_tables.py`: the lookup tables (`SINE`, `PITCH_OCT` / `pitch_inc()`, `SVF_G`,
@@ -66,6 +67,24 @@ header and the output are exactly what they were before the rate became a choice
 32 to 96 kHz is supported; up to 192 kHz builds and plays. The limits of the fixed point (the lowest
 filter cutoffs get coarser at high rates, some corners move by up to half an octave between the octave
 steps, white noise is quieter in the audible band at high rates) are listed in `src/felucca_engine.h`.
+
+## Plugins
+
+From Felucca 1.9 an engine can also be a **plugin**: built on its own and loaded by Felucca at run time, on the FM-1
+from a slot in its flash and on a desktop from a shared library. Nobody needs to build a firmware to play it.
+
+- `src/felucca_plugin.h`: the plugin interface, ABI 1 (frozen; its stability rules are at the top), and
+  `src/felucca_plugin_fm1.h`: the FM-1's blob format.
+- `examples/fold/`: a small engine of its own, the template for a new one.
+- `plugins/`: the six engines here as plugins, each taking the place of Felucca's built-in engine of the same number.
+- `tools/build_plugin.sh` (a desktop library) and `tools/build_plugin_fm1.sh` (an FM-1 blob, `.fep`, for one of the
+  two slots; it needs the JieLi toolchain, which runs in Docker).
+- `tests/plugin_test.c`: a host that loads the plugins and renders them; `tests/run.sh` checks that the six render
+  bit for bit like the engines built in.
+
+The guide is [docs/PLUGINS.md](docs/PLUGINS.md). Plugin ids are listed in [docs/PLUGIN_IDS.md](docs/PLUGIN_IDS.md).
+A plugin may use any licence: Felucca adds a permission to its GPL for plugins that use only this interface (Felucca's
+`LICENSING.md`, "Plugin engines").
 
 ## Tests
 
