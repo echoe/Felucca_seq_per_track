@@ -3409,7 +3409,7 @@ function renderMotion() {
   if (rows.contains(document.activeElement)) return;
   rows.replaceChildren(el("tr", {}, ...["motionStep", "motionParam", "motionValue"].map(k => el("th", {text:t(k)})), el("th")),
     ...m.events.map(e => {
-      const desc = d.pdesc[e.param], label = desc?.label || `P${e.param}`;
+      const desc = e.param === 127 ? {label: "PRESET", min: 0, max: 127} : d.pdesc[e.param], label = desc?.label || `P${e.param}`;   /* 127: a preset lock (core.h MOTION_PSET): the value is a preset number of the track's engine */
       const value = el("input", {type:"number",min:desc?.min ?? -8192,max:desc?.max ?? 8191,value:e.value,"aria-label":`${e.step + 1} ${label}`});
       value.addEventListener("change", () => op(async () => {
         assertSession(d);

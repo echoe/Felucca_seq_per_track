@@ -204,6 +204,7 @@ static int humanize(void)
     return bad;
 }
 
+#if !FELUCCA_DRUMX                              /* (the old drum voices' kits DEEP TIGHT PERC: FELUCCA_DRUMX=0) */
 /* -------------------------------------------------------------- KITS --- */
 /* (#216) DEEP TIGHT PERC: appended kit values 9..11 and DRUM presets 1..3 (the first, DRUM KIT, as it was); each lane one
  * of the five kits' (DEEP's kick tuned down); the lanes' names; they play; a project keeps them; what older firmware
@@ -276,6 +277,7 @@ static int kits(void)
     bad += check("  a project keeps the kit; a 1.5.1-range KIT reads 9..11 as 77 (the README's downgrade note)", ok);
     return bad;
 }
+#endif
 
 /* -------------------------------------------------------------- LEDS --- */
 /* (#212) MENU > LEDS INV LO / INV HI: appended values (0..3 as before); INV's lit ones at the mid level (HI ~12.5 %, LO
@@ -424,7 +426,12 @@ static int select_play(void)
 
 int main(void)
 {
-    int bad = humanize() + kits() + leds() + select_play();
+#if FELUCCA_DRUMX
+#define KITS_CHECK 0
+#else
+#define KITS_CHECK kits()
+#endif
+    int bad = humanize() + KITS_CHECK + leds() + select_play();
     printf("%s\n", bad ? "1.5.6 TEST FAILED" : "1.5.6 tests passed");
     return bad != 0;
 }

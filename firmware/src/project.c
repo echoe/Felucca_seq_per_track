@@ -677,6 +677,8 @@ static int proj_motion_ids(motion_store_t *m, uint32_t np)
     uint32_t i;
     for (i = 0; i < m->count && i < MOTION_MAX; i++) {
         uint32_t id = MOTION_ID(&m->event[i]);
+        if (id == MOTION_PSET)
+            continue;                                   /* (a preset lock, core.h: not a parameter: no count moves it) */
         if (id >= np) return 0;
         if (np < P_COUNT && id >= np - 8u)
             m->event[i].param = (uint8_t)((m->event[i].param & MOTION_LOCK) | (id + P_COUNT - np));

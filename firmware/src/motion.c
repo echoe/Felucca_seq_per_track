@@ -31,8 +31,11 @@ static void motion_unguard(uint32_t f)
     (void)f;
 #endif
 }
+static void motion_pset_apply(track_t *t, uint32_t pi);   /* (below: a preset lock plays) */
 static int motion_param(uint32_t id)
 {
+    if (id == MOTION_PSET)
+        return 1;                                       /* (a preset lock: a record, not a parameter) */
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
     return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
@@ -108,6 +111,8 @@ static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
 static int16_t motion_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);
+    if (id == MOTION_PSET)
+        return (int16_t)t->preset;                      /* (a new preset lock starts at the preset the track has) */
     return (motion_active[k][id / 32u] >> (id % 32u)) & 1u ? motion_base[k][id] : t->p[id];
 }
 static void motion_restore(track_t *t)
@@ -169,6 +174,8 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     uint32_t k = trk_index(t), i, f;
     const param_desc_t *d;
     if (k >= NTRK || step >= NSTEP || !motion_param(id)) return 1;
+    if (id == MOTION_PSET)
+        kind = MOTION_LOCK;                             /* (a preset is only ever locked: it does not stay on) */
     d = param_desc_of(eng_idx(t->eng_req), id);
     if (value < d->min || value > d->max || value < -64 || value > 127) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
@@ -276,10 +283,15 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         any |= motion_locked[k][w];
     if (!step) motion_restore(t);
     else if (any) motion_unlock(t, step, m);
+    for (i = 0; i < m->count; i++) {                    /* a preset lock first: the step's parameter locks then play over it */
+        const motion_event_t *e = &m->event[i];
+        if (e->place == (k << 6 | step) && MOTION_ID(e) == MOTION_PSET && play)
+            motion_pset_apply(t, (uint32_t)e->value);
+    }
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
-        if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play)) continue;
+        if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || id == MOTION_PSET) continue;
         const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
         t->p[id] = (int16_t)param_fit(d, e->value);
         motion_active[k][id / 32u] |= 1u << (id % 32u);
@@ -392,4 +404,53 @@ static uint32_t motion_sound_loaded(track_t *t, uint32_t from, uint32_t to)
     motion.count = (uint8_t)n;
     motion_unguard(f);
     return gone;
+}
+
+/* PRESET LOCK (core.h MOTION_PSET; motion.c motion_step): the track's engine plays preset pi of its own list from this step to the
+ * next: the parameters a sound load sets (apply_preset_to: the sound's defaults, the engine's knobs, the envelope, the sends, and the
+ * per-engine slots the hooks write), but in place: no undo, no fade, the voice mode (MONO / POLY, which would need a panic) and the
+ * track's own settings (param_kept) stay, the preset number shown stays. Everything it writes is marked as locked (motion_locked), so
+ * the next step puts it back as for any parameter lock. Not while the engine is changing */
+static void motion_pset_apply(track_t *t, uint32_t pi)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    const preset_t *pr;
+    uint32_t i, k = trk_index(t);
+    uint8_t keep = t->preset;
+    if (!e->npresets || t->engine != t->eng_req || !((motion_base_valid >> k) & 1u))
+        return;
+    pi = preset_orig(e, pi % e->npresets);
+    pr = &e->presets[pi];
+    for (i = 0; i < P_E0; i++)
+        if (!param_kept(i) && i != P_VOICE)
+            t->p[i] = TP[i].def;
+    for (i = 0; i < 8u; i++)
+        t->p[P_E0 + i] = (int16_t)pr->e[i];
+    t->p[P_ATK] = pr->env[0];
+    t->p[P_DEC] = pr->env[1];
+    t->p[P_SUS] = pr->env[2];
+    t->p[P_REL] = pr->env[3];
+    t->p[P_ED_FLT] = pr->fenv;
+    {
+        static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
+        for (i = 0; i < 4u; i++)
+            t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+    }
+    t->preset = (uint8_t)pi;                          /* (the hooks read it) */
+    fm6_track_loaded(t);
+#if FELUCCA_SHDRUM
+    if (e == &ENG_SHDRUM)
+        shd_load(t, pi);
+    if (e == &ENG_DRUM)
+        shk_load(t, pi);
+#endif
+    fmt_track_loaded(t);
+    swm_track_loaded(t);
+    wvt_track_loaded(t);
+    t->preset = keep;
+    for (i = 0; i < P_COUNT; i++)                     /* what it wrote is locked: the next step restores it (motion_unlock) */
+        if (i != P_VOICE && ((i < P_E0 && !param_kept(i)) || (i >= P_E0 && i < P_E0 + 8u) || (i >= P_FM1_ATK && i <= P_FM4_LEVEL))) {
+            motion_active[k][i / 32u] |= 1u << (i % 32u);
+            motion_locked[k][i / 32u] |= 1u << (i % 32u);
+        }
 }

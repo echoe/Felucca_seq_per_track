@@ -1,49 +1,45 @@
-# Felucca
-
-[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
-
-## Maintenance Notice
-
-What began as a personal experiment grew far beyond my expectations. I’m grateful to everyone who contributed, supported the project, and made music with Felucca.
-
-I’ve decided to step back from active development to focus on creating new instruments and music.
-
-Felucca will remain available with occasional maintenance, but new features, issue responses, and pull request reviews are not guaranteed.
-
-Thank you for everything. I hope you’ll look forward to my next creations.
+# Argo
 
 ## Overview
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1, version 1.7.0. Connect the FM-1 to a computer by USB, open the
-[web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge and press Install; no extra hardware is needed.
+Multi-engine synthesizer firmware for the M-VAVE FM-1 that is a branch off of Felucca, removing the samples and adding in different engines -
+one SHDRUM, unique to this firmware, three engines from Mini-tone, and the drum engine from Jiant.
+Connect the FM-1 to a computer by USB, open the
+[web installer](https://echoe.github.io/argo/) in Chrome or Edge and press Install; no extra hardware is needed.
 Installing is at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
-[Try it in your browser](https://hugelton.github.io/Felucca/webapp/try/), no FM-1 needed.
+[Try it in your browser](https://hugelton.github.io/argo/webapp/try/), no FM-1 needed.
 
-- Install: [web installer](https://hugelton.github.io/Felucca/)
-- Edit: [web editor](https://hugelton.github.io/Felucca/webapp/editor/) ([Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp))
-- Read: the manual and the release notes are in the [wiki](https://github.com/hugelton/Felucca/wiki/Home)
+- Install: [web installer](https://echoe.github.io/argo/)
+- Edit: [web editor](https://echoe.github.io/argo/webapp/editor/) ([Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp))
 - Build: [BUILDING.md](BUILDING.md)
 - Related: [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) (the ANALOG, LOFI, TRIO, WHEEL, NOISE and PHASE engines, MIT; still maintained) ·
   [felucca-bsp](https://github.com/hugelton/felucca-bsp) (the FM-1 hardware layer, MPL-2.0; Felucca builds on it from 1.7.0)
+  [Mini-tone](https://github.com/eldontyrellcorp/Mini-Tone) (the SWARM, FM-TONE, and WAVETONE engines)
+  [Jiant](https://github.com/juanjiant-bit/JIANT) (the DRUM-X engine)
 
 ## AI disclaimer
 
-Felucca is developed with the assistance of AI coding agents (code, tests, documentation, translation, maintenance). The
+Argo is built fully with generative AI, piggybacking off of the work of Felucca. As is also true with Felucca, the
 design, features, sound design and direction are the maintainer's or the community's, and no generative AI is used for music,
-icons or artwork. See [On AI-Assisted Development and Responsibility](https://github.com/hugelton/Felucca/discussions/166).
+icons or artwork.
 
 ## Credits and licence
 
 Free software: [GPL-3.0-only](LICENSE); the Hügelton Sample Pack is CC0 1.0; the engines in `firmware/engines` are MIT
 ([Felucca-Engines](https://github.com/hugelton/Felucca-Engines)); the hardware layer in `firmware/bsp` is MPL-2.0
 ([felucca-bsp](https://github.com/hugelton/felucca-bsp)); the bundled fonts and ported DSP keep their own licences
-([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Thanks to everyone whose work and contributions are in it: [CREDITS.md](CREDITS.md).
+([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Additional engines are as listed in the overview.
+Carried over from Felucca, thanks to everyone whose work and contributions are in Felucca are here: [CREDITS.md](CREDITS.md).
 
-M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
+M-VAVE and FM-1 are trademarks of their respective owners. Argo is not affiliated with or endorsed by them.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# The differences between this and Felucca
 
-## Sequences (eight per track) — this branch, v1.6.1_sequences
+## No samples
+
+No samples or engines with samples are used. This frees up space for the other features.
+
+## Sequences (eight per track)
 
 Each track plays one of eight sequences. A sequence has its own steps, its own LEN and its own automation and parameter
 locks (up to 64 records while it is not the one playing); DIV, SWING, GATE, QUANTIZE and the sound stay the track's.
@@ -66,7 +62,7 @@ locks (up to 64 records while it is not the one playing); DIV, SWING, GATE, QUAN
   keeps the music's. They live in the flash the user sample slots had, which builds with `FELUCCA_PATBANK=1` (the default) do not
   have. A song plays each project's sequence as it was saved.
 
-### ARP > GEN: generative music (this branch)
+## Generative Arpeggiator
 
 The arp's MODE has a last value, **GEN**: the track plays by itself while the music plays (PLAY starts it on its first step,
 STOP silences it), notes of its scale, and the keys play as they do with the arp OFF. **ARP > GEN** (the third ARP page) has
@@ -79,15 +75,15 @@ its knobs for the selected track:
   All of them are built from the scale's own notes.
 - **EVOLVE** (KNOB 3): how much the loop changes each time it comes round: 0 repeats it exactly; a little moves a few notes a step
   or two in the scale (now and then a new chance, chord or loudness); 100 % changes nearly every step each loop.
-- **SCL** (KNOB 4): the scale (the track's SCL; ROOT and TRN, on the SCL page and layer, and the arp's OCT, which sets how many
-  octaves it spans, pitch the same loop). The notes always follow them as they are turned.
+- **ALGO** (KNOB 4): The algorithm the generative engine uses. It starts with no algorithm (full randomness), and at 127 it has an
+algorithm more suited to drums. There is also a 'Fifths' and 'Bounce' algorithm at 1/3 and 2/3 of the range of the knob.
 
 LEN is the loop's length (up to 32 steps, at the arp's RATE; SWG, GATE and PROB apply too). The page draws the loop as it is
 made: a bar a step, as high as its note, a mark over the chords, a line under the step playing. The knobs are saved with the
 sequence banks (project SAVE, RESTORE LAST); the loop itself is made when GEN starts and when a project loads, and keeps through
 STOP and PLAY. Record-arm a track to play GEN's notes into its sequence.
 
-### SCL > CHORD: STR3 and STR7, a chord to strum (this branch)
+## Chord Improvements
 
 The CHORD page's CHRD has two more values, **STR3** and **STR7**: the keys turn into a chord to strum, as on a guitar.
 
@@ -99,9 +95,7 @@ The CHORD page's CHRD has two more values, **STR3** and **STR7**: the keys turn 
 - **VOIC** voices the chord (CLOSE, OPEN, INV1, INV2, +OCT's bass string), **TRN** and the octave buttons move it. A MONO, LEGATO or
   UNISON part plays the strings one at a time. MIDI notes, the arp and kits (DRUM, slices) play as with CHRD OFF.
 
-### SCL > CHORD: PLAY, chords with the white keys shaped by the black (this branch)
-
-A third new value for CHRD, **PLAY**: every white key plays a chord (its own note, on the track's scale as the keys are; plain major
+There is also a third new value for CHRD, **PLAY**: every white key plays a chord (its own note, on the track's scale as the keys are; plain major
 by default) and the **black keys held** with it shape the chord. The black keys make no sound. What each black key does is yours to
 set (below); with the built in POP pack, for example: key 1 (F#3) MIN, key 2 MIN7, key 3 7, key 4 MAJ7, key 5 SUS4, key 6 SUS2,
 key 7 DIM, key 8 +9, key 9 6, key 10 STRM, key 11 ARP. The chord is the one held when the white key goes down.
@@ -126,3 +120,6 @@ edited. Packs are what the black keys do and the strum speed together: six are b
 are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was changed since), and **OCT+ saves** what the black keys
 do now into the user pack picked. The packs and the keys' setting are saved with the music (project SAVE, RESTORE LAST), in the
 sequence banks' flash.
+
+## Preset changing per step
+Within a synth type, you can set a different preset per step. To do this go to SEQ, then the AUTO page (3/4), then add a row. The last PARAM you can change is a PRESET param that lets you select different presets. This is an optional setting that is processed as though there is a settings change for the step, which is why you cannot change synth engines. This means that you can 'double up' on tracks if you want and do a bunch of weird tricks.

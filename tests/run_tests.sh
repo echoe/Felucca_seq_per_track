@@ -285,6 +285,9 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
+    # the PRESET LOCK (tests/pset_lock_test.c): a motion record (core.h MOTION_PSET) whose step plays a whole preset of the track's engine
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/pset_lock_test" tests/pset_lock_test.c -lm
+    run "PRESET LOCK: a step plays what a sound load sets (every engine), the next puts it back, parameter locks over it, chance, engine change, the project store, the AUTOMATION editor" "$OUT/pset_lock_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
     run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, AUTOMATION RATCH rows" "$OUT/ratchet_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/step15_test" tests/step15_test.c -lm

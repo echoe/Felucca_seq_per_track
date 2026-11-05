@@ -1278,33 +1278,10 @@ static void pat_load_ui(track_t *t, uint32_t n)
     ui_say("LOADED ", b);
 }
 
-/* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
- * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
- * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
- * insert, which chops whatever the track plays in time with its sequencer */
-static int param_kept(uint32_t i)
-{
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
-}
 
 /* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
  * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for.
  * (SAMPLE 4, once PERC, is past SMP_NPRESETS: apply_preset_to loads it as DRUM) */
-#if FELUCCA_SAMPLE
-#define IS_SMP_TABLE(e) ((e)->presets == SMP_PRESET_TABLE)
-#else
-#define IS_SMP_TABLE(e) 0
-#endif
-static uint32_t preset_orig(const engine_t *e, uint32_t k)
-{
-#if FELUCCA_SAMPLE
-    return IS_SMP_TABLE(e) && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
-#else
-    (void)e;
-    return k;
-#endif
-}
 
 /* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
 static uint32_t preset_rank(const engine_t *e, uint32_t k)
@@ -1423,6 +1400,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     wvt_track_loaded(t);                              /* WAVETONE: the preset's slots */
     load_end(t);
 }
+
 
 /* the engine's defaults and its first preset. With the audio IRQ off: the ISR sees the old engine with
  * its values or the new one with its own (voice.c engine_block), never one with the other's */

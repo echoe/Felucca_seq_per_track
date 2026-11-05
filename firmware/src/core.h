@@ -295,6 +295,9 @@ static void step_set_nudge(step_t *s, int32_t v)
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
  * value holds until another one changes it. One record per (track, step, id), of either kind */
 #define MOTION_LOCK 0x80u
+#define MOTION_PSET 127u         /* a PRESET LOCK (this tree): not a parameter: a lock record (always MOTION_LOCK) with this id, whose value is a preset of the
+                                  * track's engine: its step plays that preset in place (ui.c motion_pset_apply: what a sound load sets, but for the
+                                  * voice mode), the next step puts everything back as for any lock. P_COUNT is at most 126 for it (project.c) */
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;

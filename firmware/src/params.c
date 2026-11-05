@@ -232,6 +232,9 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DRREV] = PD("-", F_INT, 0, 0, 0),
 };
 
+/* a PRESET LOCK's "parameter" (core.h MOTION_PSET): its value is a preset index of the track's engine (the list shows its name) */
+static const param_desc_t PSET_DESC = {"PRESET", F_INT, 0, 127, 0, 0, 0};
+
 /* the FM operator slots as SWARM / FMTONE name them (eng_swarm.c swm_xdesc, eng_fmtone.c fmt_xdesc; ported from Mini-Tone, where
  * engine_t.tdesc does it): engine index e, parameter id; 0 = not one of the engine's own (TP's descriptor then) */
 static const param_desc_t *eng_xdesc(uint32_t e, uint32_t id)
@@ -255,6 +258,8 @@ static const param_desc_t *eng_xdesc(uint32_t e, uint32_t id)
 
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id == MOTION_PSET)
+        return &PSET_DESC;
     if (id >= P_FM1_ATK && id <= P_FM4_LEVEL) {         /* the operator slots as SWARM / FMTONE name them */
         const param_desc_t *d = eng_xdesc(eng_idx(t->eng_req), id);
         if (d)
@@ -282,6 +287,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    if (id == MOTION_PSET)
+        return &PSET_DESC;
     {
         const param_desc_t *x = eng_xdesc(e, id);        /* (SWARM, FMTONE: their operator slots' range) */
         if (x)
@@ -622,4 +629,30 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         id += 3u * mod_ui_slot;
     *valp = &TSEL->p[id];
     return track_desc(TSEL, id);
+}
+
+/* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
+ * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
+ * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
+ * insert, which chops whatever the track plays in time with its sequencer */
+static int param_kept(uint32_t i)
+{
+    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
+           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
+}
+
+/* a stored preset number as the engine's list has it (SAMPLE's retired aliases; core.h FELUCCA_SMPENG) */
+#if FELUCCA_SAMPLE
+#define IS_SMP_TABLE(e) ((e)->presets == SMP_PRESET_TABLE)
+#else
+#define IS_SMP_TABLE(e) 0
+#endif
+static uint32_t preset_orig(const engine_t *e, uint32_t k)
+{
+#if FELUCCA_SAMPLE
+    return IS_SMP_TABLE(e) && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+#else
+    (void)e;
+    return k;
+#endif
 }

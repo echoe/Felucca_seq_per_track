@@ -1634,7 +1634,7 @@ static void graph_events(void)
             cv_text_on(14, y + LIST_TY, &AF_M, lock ? "LOCK" : "AUTO", sel ? T_INK : lock ? T_ACCENT : T_MID, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_on(EV_SX, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
-            param_format(d, e->value, b, &unit);
+            ev_value_text(t, id, e->value, b, &unit);
             ev_name(t, id, nm);
             x = ev_value(y, b, unit, sel ? T_INK : T_TEXT, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");

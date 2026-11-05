@@ -1136,7 +1136,7 @@ static void draw_columns(void)
         }
         v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_base_value(t, id);
         d = track_desc(t, id);
-        param_format(d, v, val, &unit);
+        ev_value_text(t, id, v, val, &unit);             /* (a preset lock: the preset's name) */
         draw_column(3, k == EVK_ADD ? "VALUE" : (motion.event[c & 0xFFu].param & MOTION_LOCK) ? "LOCK" : "AUTO", val, unit,
                     k != EVK_ADD ? VAL(3u) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
         return;
