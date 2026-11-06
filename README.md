@@ -5,12 +5,11 @@
 Multi-engine synthesizer firmware for the M-VAVE FM-1 that is a branch off of Felucca, removing the samples and adding in different engines -
 one SHDRUM, unique to this firmware, three engines from Mini-tone, and the drum engine from Jiant.
 Connect the FM-1 to a computer by USB, open the
-[web installer](https://echoe.github.io/argo/) in Chrome or Edge and press Install; no extra hardware is needed.
+[web installer](https://echoe.github.io/argo_fm1/) in Chrome or Edge and press Install; no extra hardware is needed.
 Installing is at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
-[Try it in your browser](https://hugelton.github.io/argo/webapp/try/), no FM-1 needed.
 
-- Install: [web installer](https://echoe.github.io/argo/)
-- Edit: [web editor](https://echoe.github.io/argo/webapp/editor/) ([Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp))
+- Install: [web installer](https://echoe.github.io/argo_fm1/)
+- Edit: [web editor](https://echoe.github.io/argo_fm1/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 - Related: [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) (the ANALOG, LOFI, TRIO, WHEEL, NOISE and PHASE engines, MIT; still maintained) ·
   [felucca-bsp](https://github.com/hugelton/felucca-bsp) (the FM-1 hardware layer, MPL-2.0; Felucca builds on it from 1.7.0)
@@ -25,7 +24,7 @@ icons or artwork.
 
 ## Credits and licence
 
-Free software: [GPL-3.0-only](LICENSE); the Hügelton Sample Pack is CC0 1.0; the engines in `firmware/engines` are MIT
+Free software: [GPL-3.0-only](LICENSE); the Hügelton Sample Pack is CC0 1.0, but should be fully removed; the engines in `firmware/engines` are MIT
 ([Felucca-Engines](https://github.com/hugelton/Felucca-Engines)); the hardware layer in `firmware/bsp` is MPL-2.0
 ([felucca-bsp](https://github.com/hugelton/felucca-bsp)); the bundled fonts and ported DSP keep their own licences
 ([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Additional engines are as listed in the overview.
