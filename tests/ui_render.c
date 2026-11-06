@@ -988,7 +988,12 @@ static void setup(int s)
     case S_MESSAGE: ui_say("LOADED ", "07 A VERY LONG PATTERN NAME"); break;
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
     case S_MESSAGE_NOFILE:                          /* a missing sample (ui_input.c sample_notice): USR2 */
+        
+#if FELUCCA_SAMPLE
         eng(ENGI_SAMPLE); TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1); memset(snd_said, 0, sizeof snd_said); sample_notice(); break;
+#else
+        break;
+#endif
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
@@ -1278,7 +1283,11 @@ static void setup(int s)
     case S_EDIT_SAMPLE: {
         uint32_t i;
         eng(4); go_title("EDIT 1"); last_note = 60;
+#if FELUCCA_SAMPLE
         for (i = 0; i < 4000u && !sample_wave.ready; i++) sample_wave_tick(TSEL);
+#else
+        (void)i;                                      /* (the sample engines are retired: a gone engine's page) */
+#endif
         break;
     }
     case S_EDIT_GRAIN: eng(8); go_title("EDIT 2"); break;
@@ -1701,7 +1710,7 @@ static void draw(int s)
     }
     if (s == S_SPLASH) {                          /* the power-on splash (main.c, before the UI): its lines, the version
                                                    * shown FELUCCA_VERSION (run_tests.sh: src/felucca.c's) */
-        static const char WANT[] = "Felucca|" FELUCCA_VERSION "|H\xFCgelton Instruments|with community";
+        static const char WANT[] = "Argo|" FELUCCA_VERSION "|H\xFCgelton Instruments|with community";
         splash_seen[0] = 0;
         in_splash = 1;
         draw_splash();

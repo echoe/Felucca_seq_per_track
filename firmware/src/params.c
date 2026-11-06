@@ -55,7 +55,7 @@ static const char *const N_NOTE[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", 
 static const char *const N_DASH[] = {"--"};
 static const char *const N_RTYPE[] = {"ROOM", "SPRING", "HALL"};   /* G_RTYPE: the reverb bus's model (fx.c) */
 static const char *const N_GO[] = {"--", "GO"};
-static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
+static const char *const N_SLCR[] = {"OFF", "GATE", "STUT", "GRAIN"};      /* SL_OFF .. SL_GRAIN (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 /* the INSERT's types (1.5, fx.c IT_*; append-only: stored). Its three values A B C mean what the type says (ins_desc) */
 static const char *const N_ITYPE[] = {"OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"};
@@ -70,10 +70,20 @@ static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "VEL", "TIME"};
-static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6",
-#if FELUCCA_SLICE
-                                             "SLICE",
+static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", FELUCCA_SAMPLE ? "SAMPLE" : "-", "VOICE", "TRIO", "WHEEL",
+                                             FELUCCA_GRAIN ? "GRAIN" : "-", "PHYS", "DRUM", "NOISE", "FM6",
+                                             FELUCCA_SLICE ? "SLICE" : "-",   /* ("-": a retired engine's number, ENG_FM4_GONE) */
+#if FELUCCA_SHDRUM
+                                             "SHDRUM",
+#endif
+#if FELUCCA_SWARM
+                                             "SWARM",
+#endif
+#if FELUCCA_FMTONE
+                                             "FMTONE",
+#endif
+#if FELUCCA_WAVETONE
+                                             "WAVETONE",
 #endif
 };
 
@@ -222,13 +232,50 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DRREV] = PD("-", F_INT, 0, 0, 0),
 };
 
+/* a PRESET LOCK's "parameter" (core.h MOTION_PSET): its value is a preset index of the track's engine (the list shows its name) */
+static const param_desc_t PSET_DESC = {"PRESET", F_INT, 0, 127, 0, 0, 0};
+
+/* the FM operator slots as SWARM / FMTONE name them (eng_swarm.c swm_xdesc, eng_fmtone.c fmt_xdesc; ported from Mini-Tone, where
+ * engine_t.tdesc does it): engine index e, parameter id; 0 = not one of the engine's own (TP's descriptor then) */
+static const param_desc_t *eng_xdesc(uint32_t e, uint32_t id)
+{
+    if (id < P_FM1_ATK || id > P_FM4_LEVEL)
+        return 0;
+#if FELUCCA_SWARM
+    if (e == ENGI_SWARM)
+        return swm_xdesc(id);
+#endif
+#if FELUCCA_FMTONE
+    if (e == ENGI_FMTONE)
+        return fmt_xdesc(id);
+#endif
+#if FELUCCA_WAVETONE
+    if (e == ENGI_WAVETONE)
+        return wvt_xdesc(id);
+#endif
+    return 0;
+}
+
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id == MOTION_PSET)
+        return &PSET_DESC;
+    if (id >= P_FM1_ATK && id <= P_FM4_LEVEL) {         /* the operator slots as SWARM / FMTONE name them */
+        const param_desc_t *d = eng_xdesc(eng_idx(t->eng_req), id);
+        if (d)
+            return d;
+    }
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
         return d ? d : &e->edit[id - P_E0];
     }
+#if FELUCCA_SHDRUM
+    if (id >= SHP_AATK && id < SHP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_SHDRUM)   /* SHDRUM's slots (eng_shdrum.c) */
+        return shd_xdesc(id);
+    if (id >= SKP_SND0 && id < SKP_END && ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM)     /* DRUM KIT SH's (eng_drum.c) */
+        return shk_xdesc(id);
+#endif
     if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
         return ins_desc(t->p[P_ITYPE], id - P_IA);
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
@@ -240,6 +287,19 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    if (id == MOTION_PSET)
+        return &PSET_DESC;
+    {
+        const param_desc_t *x = eng_xdesc(e, id);        /* (SWARM, FMTONE: their operator slots' range) */
+        if (x)
+            return x;
+    }
+#if FELUCCA_SHDRUM
+    if (e == ENGI_SHDRUM && id >= SHP_AATK && id < SHP_END)   /* SHDRUM's slots among the FM operator ids (eng_shdrum.c) */
+        return shd_xdesc(id);
+    if (e == ENGI_DRUM && id >= SKP_SND0 && id < SKP_END)     /* DRUM KIT SH's (eng_drum.c) */
+        return shk_xdesc(id);
+#endif
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
 
@@ -252,7 +312,11 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
     if (d->names == N_DRUM_KIT)
         return v >= 0 && v < DK_COUNT ? (int32_t)DK_PLAYS[v] : v;
+#if FELUCCA_SAMPLE
     return d->names == SMP_ALL_NAMES && v >= 0 && v < SMP_NSETS ? SMP_SET_ORIG[v] : v;
+#else
+    return v;
+#endif
 }
 
 /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
@@ -440,6 +504,7 @@ typedef struct {
     const char *title;
     uint8_t fam, scope, graph;
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
+    uint8_t own;                 /* the engine index + 1 the page belongs to (shown for it only: ui.c page_visible), 0 = any */
 } page_t;
 
 static const page_t PAGES[] = {
@@ -468,6 +533,40 @@ static const page_t PAGES[] = {
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E4, P_E5, P_E7}},   /* ANALOG only (1.5, #104): TYPE CUT RES KTR */
     {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},   /* DRUM only: the lane levels */
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
+#if FELUCCA_SHDRUM
+    /* SHDRUM only (eng_shdrum.c; ui.c page_visible: the titles that start with "SH "): its layers' envelopes and levels
+     * and its effects, in the track's FM operator slots under SHDRUM's own labels (shd_xdesc) */
+    {"SH LAYER A", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_AATK, SHP_ADEC, SHP_ALVL, 0xFF}},
+    {"SH LAYER B", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_BATK, SHP_BDEC, SHP_BLVL, 0xFF}},
+    {"SH FX 1", FAM_EDIT, SC_TRACK, GR_NONE, {P_E7, SHP_CLIK, SHP_FOLD, SHP_CRSH}},
+    {"SH FX 2", FAM_EDIT, SC_TRACK, GR_NONE, {SHP_FTYP, SHP_CUT, SHP_RES, SHP_FENV}},
+    /* DRUM with KIT SH only (eng_drum.c; ui.c page_visible: the titles that start with "SK "): the lanes' sounds and tuning */
+    {"SK SND", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0, SKP_SND0 + 1, SKP_SND0 + 2, SKP_SND0 + 3}},
+    {"SK SND 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_SND0 + 4, SKP_SND0 + 5, SKP_SND0 + 6, SKP_SND0 + 7}},
+    {"SK TUNE", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0, SKP_TUN0 + 1, SKP_TUN0 + 2, SKP_TUN0 + 3}},
+    {"SK TUNE 2", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_TUN0 + 4, SKP_TUN0 + 5, SKP_TUN0 + 6, SKP_TUN0 + 7}},
+    {"SK KIT", FAM_EDIT, SC_TRACK, GR_NONE, {SKP_DPT, SKP_SWP, SKP_CRS, SKP_FLD}},
+#endif
+#if FELUCCA_SWARM
+    /* SWARM's (eng_swarm.c, ported from Mini-Tone): the resonant voice filter: TYPE, CUT (EDIT 2's), RES and KEY (FM operator slots) */
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E7, P_FM1_REL, P_FM1_ATK}, ENGI_SWARM + 1},
+#endif
+#if FELUCCA_FMTONE
+    /* FMTONE's (eng_fmtone.c): operator A's and B's envelopes, their delays and key tracking, the fine tuning, the filter; all
+     * operator slots under its own names (fmt_xdesc) */
+    {"A ENV", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_LEVEL}, ENGI_FMTONE + 1},
+    {"B ENV", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_LEVEL}, ENGI_FMTONE + 1},
+    {"DEL TRK", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_REL, P_FM2_REL, P_FM3_ATK, P_FM3_DEC}, ENGI_FMTONE + 1},
+    {"FINE", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM3_REL, P_FM4_ATK, P_FM4_DEC, 0xFF}, ENGI_FMTONE + 1},
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL}, ENGI_FMTONE + 1},
+#endif
+#if FELUCCA_WAVETONE
+    /* WAVETONE's (eng_wavetone.c): the interaction, utilities, noise and the voice filter; operator slots under its own names (wvt_xdesc) */
+    {"INTERACT", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_ATK, P_FM1_DEC, P_FM1_REL, P_FM2_REL}, ENGI_WAVETONE + 1},
+    {"UTIL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM2_ATK, P_FM2_DEC, 0xFF, 0xFF}, ENGI_WAVETONE + 1},
+    {"NOISE", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM3_ATK, P_FM3_DEC, P_FM1_SUS, P_FM2_SUS}, ENGI_WAVETONE + 1},
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_FM3_SUS, P_FM3_REL, P_FM3_LEVEL}, ENGI_WAVETONE + 1},
+#endif
     {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, {0xFF, 0xFF, 0xFF, 0xFF}},     /* bytes of the track's patch (ui_fm6op.c): */
@@ -530,4 +629,30 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         id += 3u * mod_ui_slot;
     *valp = &TSEL->p[id];
     return track_desc(TSEL, id);
+}
+
+/* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
+ * TOOLS INIT) leaves alone (TOOLS INIT does take the SLICER back to OFF, ui.c slicer_reset). The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
+ * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
+ * insert, which chops whatever the track plays in time with its sequencer */
+static int param_kept(uint32_t i)
+{
+    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
+           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
+}
+
+/* a stored preset number as the engine's list has it (SAMPLE's retired aliases; core.h FELUCCA_SMPENG) */
+#if FELUCCA_SAMPLE
+#define IS_SMP_TABLE(e) ((e)->presets == SMP_PRESET_TABLE)
+#else
+#define IS_SMP_TABLE(e) 0
+#endif
+static uint32_t preset_orig(const engine_t *e, uint32_t k)
+{
+#if FELUCCA_SAMPLE
+    return IS_SMP_TABLE(e) && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+#else
+    (void)e;
+    return k;
+#endif
 }

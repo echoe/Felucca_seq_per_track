@@ -13,8 +13,27 @@
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
+#ifndef FELUCCA_DRUMX
+#define FELUCCA_DRUMX 1          /* the DRUM engine's sound is DRUM-X (drumx_voice.c, ported from JIANT: eight synthesized lanes, two patches and a MORPH,
+                                  * nine factory kits); FELUCCA_DRUMX=0 builds Felucca's own drum voices (drum_voice.c: STD and the model kits) as 1.7.0 does */
+#endif
+#ifndef FELUCCA_SMPENG
+#define FELUCCA_SMPENG 0         /* the sample engines SAMPLE (4), GRAIN (8) and SLICE (13), with the 126 KB of PIANO / FLUTE / SAX / BREAK
+                                  * they play (felucca_samples.h): retired. Their numbers stay (the projects, the user presets and the
+                                  * editor store them): without them an engine slot is ENG_FM4_GONE, silent, never offered, and a track
+                                  * that has one keeps its values. FELUCCA_SMPENG=1 builds all three, as 1.7.0 does */
+#endif
+#ifndef FELUCCA_SAMPLE
+#define FELUCCA_SAMPLE FELUCCA_SMPENG   /* the SAMPLE engine (eng_sample.c), engine 4 (and the sets: GRAIN and SLICE play them) */
+#endif
+#ifndef FELUCCA_GRAIN
+#define FELUCCA_GRAIN FELUCCA_SMPENG    /* the GRAIN engine (eng_grain.c), engine 8; needs SAMPLE (its sets) */
+#endif
 #ifndef FELUCCA_SLICE
-#define FELUCCA_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; FELUCCA_SLICE=0 builds without it */
+#define FELUCCA_SLICE FELUCCA_SMPENG    /* the SLICE engine (eng_slice.c), engine 13; needs SAMPLE (its BREAK and PIANO) */
+#endif
+#if (FELUCCA_GRAIN || FELUCCA_SLICE) && !FELUCCA_SAMPLE
+#error "FELUCCA_GRAIN and FELUCCA_SLICE play the sample sets of SAMPLE: build with FELUCCA_SAMPLE=1"
 #endif
 #ifndef FELUCCA_PATBANK
 #define FELUCCA_PATBANK 1        /* eight sequences per track (patbank.c), kept in the flash the three user sample slots (USR1..3)
@@ -23,6 +42,9 @@
 #ifndef FELUCCA_USERSMP
 #define FELUCCA_USERSMP (!FELUCCA_PATBANK)   /* the three user sample slots: off with the sequence banks (their flash); the host tests of the
                                               * sample engines build with FELUCCA_USERSMP=1 */
+#endif
+#if FELUCCA_USERSMP && !FELUCCA_SAMPLE
+#error "FELUCCA_USERSMP (the user sample slots) needs the SAMPLE engine: build with FELUCCA_SMPENG=1"
 #endif
 #ifndef FELUCCA_FM4
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
@@ -36,9 +58,34 @@
                                             * second core (mod.c, voice.c SPREAD, eng_formant.c): one each with two cores,
                                             * one for all with one, as up to 1.6 */
 #define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)   /* a part's copy */
-#define NENGINES (13 + FELUCCA_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
+#ifndef FELUCCA_SHDRUM
+#define FELUCCA_SHDRUM (!FELUCCA_FM4)   /* the SHDRUM engine (eng_shdrum.c), engine 14, after SLICE; FELUCCA_SHDRUM=0 builds without it (and
+                                  * FELUCCA_FM4=1 does: the DIGITAL engine's key in the EDIT layer leaves no white key for a 15th).
+                                  * It needs SLICE (its engine number, the preset categories and the favourites' rows are laid out
+                                  * for 14 engines before it) */
+#endif
+#ifndef FELUCCA_SWARM
+#define FELUCCA_SWARM FELUCCA_SHDRUM   /* the SWARM engine (eng_swarm.c, ported from Mini-Tone), engine 15, after SHDRUM: the engine numbers are stored,
+                                  * so each needs the one before it. FELUCCA_SWARM=0 builds without it (and FELUCCA_FMTONE with it) */
+#endif
+#if FELUCCA_SWARM && !FELUCCA_SHDRUM
+#error "FELUCCA_SWARM is engine 15 and needs the SHDRUM engine (14): build with FELUCCA_SHDRUM=1, or FELUCCA_SWARM=0"
+#endif
+#ifndef FELUCCA_FMTONE
+#define FELUCCA_FMTONE FELUCCA_SWARM   /* the FMTONE engine (eng_fmtone.c, ported from Mini-Tone), engine 16; it needs SWARM (15) */
+#endif
+#if FELUCCA_FMTONE && !FELUCCA_SWARM
+#error "FELUCCA_FMTONE is engine 16 and needs the SWARM engine (15): build with FELUCCA_SWARM=1, or FELUCCA_FMTONE=0"
+#endif
+#ifndef FELUCCA_WAVETONE
+#define FELUCCA_WAVETONE FELUCCA_FMTONE   /* the WAVETONE engine (eng_wavetone.c, ported from Mini-Tone), engine 17, with 16.6 kB of wavetables; it needs FMTONE (16) */
+#endif
+#if FELUCCA_WAVETONE && !FELUCCA_FMTONE
+#error "FELUCCA_WAVETONE is engine 17 and needs the FMTONE engine (16): build with FELUCCA_FMTONE=1, or FELUCCA_WAVETONE=0"
+#endif
+#define NENGINES (14 + FELUCCA_SHDRUM + FELUCCA_SWARM + FELUCCA_FMTONE + FELUCCA_WAVETONE)   /* 0..13 always (a retired one is a gone slot: ENG_FM4_GONE), then SHDRUM (14), SWARM (15), FMTONE (16): the other engines keep their numbers */
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !FELUCCA_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
+#define NENG_SHOWN (NENGINES - !FELUCCA_FM4 - !FELUCCA_SAMPLE - !FELUCCA_GRAIN - !FELUCCA_SLICE)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
                                                 * in the display order of engines.c ENGINE_ORDER */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 
@@ -116,6 +163,10 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
 /* engine indices the stores name (engines.c ENGINES[]: append-only) */
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
+#define ENGI_SHDRUM 14u
+#define ENGI_SWARM 15u           /* (eng_swarm.c, ported from Mini-Tone) */
+#define ENGI_FMTONE 16u          /* (eng_fmtone.c) */
+#define ENGI_WAVETONE 17u        /* (eng_wavetone.c, ported from Mini-Tone) */
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
  * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
@@ -123,9 +174,16 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 {
     if (engine != ENGI_PHYS || e[0] != 4)
         return 0;
+#if FELUCCA_DRUMX
+    e[0] = 0;                                                           /* DRUM-X's first kit (PERC's kits are gone); TUNE TONE DECY NOIS stay */
+    e[5] = 0;                                                           /* FM ENV, FOLD, MORPH as the default kit has them */
+    e[6] = 0;
+    e[7] = 64;
+#else
     e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
     e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
     e[7] = 0;
+#endif
     return 1;
 }
 
@@ -137,7 +195,11 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
  * favourites (ui.c, settings_persist.c). Idempotent */
 #define ENGI_SAMPLE 4u
 #define SMP_SET_PERC 4u
+#if FELUCCA_DRUMX
+#define DRUM_KIT_E {0, 64, 70, 64, 64, 0, 0, 64}   /* {KIT DRUM-X, TUNE, TONE, DECY, NOIS, FM ENV, FOLD, MRPH} */
+#else
 #define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
+#endif
 static int drum_from_perc(uint32_t engine, int16_t *e)
 {
     static const int16_t KIT[8] = DRUM_KIT_E;
@@ -233,6 +295,9 @@ static void step_set_nudge(step_t *s, int32_t v)
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
  * value holds until another one changes it. One record per (track, step, id), of either kind */
 #define MOTION_LOCK 0x80u
+#define MOTION_PSET 127u         /* a PRESET LOCK (this tree): not a parameter: a lock record (always MOTION_LOCK) with this id, whose value is a preset of the
+                                  * track's engine: its step plays that preset in place (ui.c motion_pset_apply: what a sound load sets, but for the
+                                  * voice mode), the next step puts everything back as for any lock. P_COUNT is at most 126 for it (project.c) */
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;

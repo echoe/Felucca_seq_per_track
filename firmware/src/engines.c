@@ -22,13 +22,19 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
 
 #include "../engines/src/eng_analog.c"   /* Felucca-Engines (MIT): ANALOG LOFI TRIO WHEEL NOISE */
-#include "eng_phase.c"
+#include "../engines/src/eng_phase.c"   /* Felucca-Engines (MIT): PHASE */
 #include "../engines/src/eng_lofi.c"
+#if FELUCCA_SAMPLE
 #include "eng_sample.c"
+#else
+#include "smp_slots.c"        /* the user sample slots' map and header (the editor protocol and the backup name them) */
+#endif
 #include "eng_formant.c"
 #include "../engines/src/eng_trio.c"
 #include "../engines/src/eng_wheel.c"
+#if FELUCCA_GRAIN
 #include "eng_grain.c"
+#endif
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
 #include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c) */
 #include "../engines/src/eng_noise.c"
@@ -39,6 +45,27 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #endif
 #if FELUCCA_SLICE
 #include "eng_slice.c"
+#endif
+#if FELUCCA_SHDRUM
+#include "eng_shdrum.c"         /* SHDRUM: a two-layer drum synth (after the SH-4D's rhythm part) */
+#endif
+#if FELUCCA_SWARM || FELUCCA_FMTONE || FELUCCA_WAVETONE
+#include "rsvf.c"               /* the resonant voice filter of SWARM and FMTONE (ported from Mini-Tone; dsp.c is the submodule's) */
+#endif
+#if FELUCCA_SWARM
+#include "eng_swarm.c"          /* SWARM: seven-oscillator super-saw cluster (ported from Mini-Tone; 4 voices a part) */
+#else
+static void swm_track_loaded(track_t *t) { (void)t; }
+#endif
+#if FELUCCA_WAVETONE
+#include "eng_wavetone.c"       /* WAVETONE: two wavetable oscillators with phase distortion, interaction and a noise modeler (ported from Mini-Tone; 4 voices a part) */
+#else
+static void wvt_track_loaded(track_t *t) { (void)t; }
+#endif
+#if FELUCCA_FMTONE
+#include "eng_fmtone.c"         /* FMTONE: four-operator FM (C, A, B1, B2), ported from Mini-Tone (6 voices a part) */
+#else
+static void fmt_track_loaded(track_t *t) { (void)t; }
 #endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
@@ -51,17 +78,39 @@ static const engine_t *const ENGINES[NENGINES] = {
 #endif
     &ENG_PHASE,                  /* 2 */
     &ENG_LOFI,                   /* 3 */
+#if FELUCCA_SAMPLE
     &ENG_SAMPLE,                 /* 4 */
+#else
+    &ENG_FM4_GONE,               /* 4: retired (SAMPLE) */
+#endif
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
     &ENG_TRIO,                   /* 6 */
     &ENG_WHEEL,                  /* 7 */
+#if FELUCCA_GRAIN
     &ENG_GRAIN,                  /* 8 */
+#else
+    &ENG_FM4_GONE,               /* 8: retired (GRAIN) */
+#endif
     &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
     &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
 #if FELUCCA_SLICE
-    &ENG_SLICE,                  /* 13 (FELUCCA_SLICE=0 builds without it) */
+    &ENG_SLICE,                  /* 13 */
+#else
+    &ENG_FM4_GONE,               /* 13: retired (SLICE) */
+#endif
+#if FELUCCA_SHDRUM
+    &ENG_SHDRUM,                 /* 14 (ENGI_SHDRUM; FELUCCA_SHDRUM=0 builds without it) */
+#endif
+#if FELUCCA_SWARM
+    &ENG_SWARM,                  /* 15 (ENGI_SWARM; FELUCCA_SWARM=0 builds without it) */
+#endif
+#if FELUCCA_FMTONE
+    &ENG_FMTONE,                 /* 16 (ENGI_FMTONE; FELUCCA_FMTONE=0 builds without it; it needs SWARM) */
+#endif
+#if FELUCCA_WAVETONE
+    &ENG_WAVETONE,               /* 17 (ENGI_WAVETONE; FELUCCA_WAVETONE=0 builds without it; it needs FMTONE) */
 #endif
 };
 
@@ -93,6 +142,7 @@ static void eng_mem_claim(const track_t *t)
 static uint8_t snd_said[NTRK];   /* per track: the code last said, 0 = none (a project load clears them: said again) */
 static const char *snd_missing(const track_t *t, uint32_t *code)
 {
+#if FELUCCA_SAMPLE
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL;
 #if FELUCCA_SLICE
@@ -102,10 +152,22 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
         return slc_get(si) ? 0 : N_SLC_SRC[si];
     }
 #endif
-    if (e != &ENG_SAMPLE && e != &ENG_GRAIN)
+    if (e != &ENG_SAMPLE
+#if FELUCCA_GRAIN
+        && e != &ENG_GRAIN
+#endif
+        )
         return 0;
-    *code = (e == &ENG_GRAIN ? 32u : 1u) + si % 32u;
+    *code = (
+#if FELUCCA_GRAIN
+        e == &ENG_GRAIN ? 32u :
+#endif
+        1u) + si % 32u;
     return smp_set_missing(si) ? SMP_ALL_NAMES[si] : 0;
+#else
+    (void)t; (void)code;
+    return 0;
+#endif
 }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
@@ -117,17 +179,37 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if FELUCCA_FM4
     1,                           /* DIGITAL */
 #endif
-    2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
+    2, 3,                        /* PHASE LOFI */
+#if FELUCCA_SAMPLE
+    4,                           /* SAMPLE */
+#endif
+    5, 6, 7,                     /* VOICE TRIO WHEEL */
+#if FELUCCA_GRAIN
+    8,                           /* GRAIN */
+#endif
+    9,                           /* PHYS */
     11,                          /* NOISE */
 #if FELUCCA_SLICE
     13,                          /* SLICE */
 #endif
     10,                          /* DRUM */
+#if FELUCCA_SHDRUM
+    ENGI_SHDRUM,                 /* SHDRUM */
+#endif
+#if FELUCCA_SWARM
+    ENGI_SWARM,                  /* SWARM (past the EDIT layer's 14 keys: ui_layer.c LY_INIT; KNOB 1 ENG, PRESETS and the editor reach it) */
+#endif
+#if FELUCCA_FMTONE
+    ENGI_FMTONE,                 /* FMTONE (as SWARM) */
+#endif
+#if FELUCCA_WAVETONE
+    ENGI_WAVETONE,               /* WAVETONE */
+#endif
 };
 
 /* the engines one can pick (engine 1 only with FELUCCA_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
-static int eng_ok(uint32_t e) { return e < NENGINES && (FELUCCA_FM4 || e != ENGI_DIGITAL); }
+static int eng_ok(uint32_t e) { return e < NENGINES && ENGINES[e] != &ENG_FM4_GONE; }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
 {

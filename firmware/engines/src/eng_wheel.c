@@ -33,8 +33,9 @@
  * percussion run once per block. State: the per-track rotor and bar gains (drw_trk) and the
  * per-voice phases / gains (drw_vc) live here, indexed by part and voice; voice_t is unused. */
 #define DRW_NP 9                 /* partials */
-#define DRW_FOLD 584366000u      /* ~6 kHz as a phase increment: partials above fold down an octave */
-#define DRW_XOVER 77915000u      /* ~800 Hz: below the low rotor, above the high rotor */
+/* ~6 kHz as a phase increment: partials above fold down an octave (584366000 at 44.1 kHz) */
+#define DRW_FOLD ((uint32_t)(584366000ull * 44100u / FS))
+#define DRW_XOVER ((uint32_t)(77915000ull * 44100u / FS))   /* ~800 Hz: below the low rotor, above the high rotor */
 
 /* drawbar level 0..8 -> Q15, 3 dB a step */
 static const uint16_t DRW_LV[9] = {0, 2920, 4125, 5827, 8231, 11627, 16423, 23198, 32767};
@@ -85,7 +86,7 @@ static inline uint32_t drw_ratio(uint32_t k, uint32_t x)
 }
 
 /* rotor speeds as phase increments per block (CTL samples): Hz * CTL / FS * 2^32 */
-#define DRW_HZ(h) ((int32_t)((h) * 3116457.0))
+#define DRW_HZ(h) ((int32_t)((h) * 3116457.0 * (44100.0 / FS)))   /* 3116457: CTL / 44100 * 2^32 */
 static const int32_t DRW_ROT_SPD[2][3] = {
     {0, DRW_HZ(0.8), DRW_HZ(6.7)},   /* high rotor: OFF (stops), SLOW, FAST */
     {0, DRW_HZ(0.7), DRW_HZ(5.8)},   /* low rotor */
@@ -147,7 +148,7 @@ static void wheel_block(track_t *t)
         T->g[k] = (int32_t)(((uint32_t)lv[k] * norm) >> 15);
     T->pk = perc ? (int32_t)(3u + ((perc - 1u) & 1u)) : DRW_NP;   /* 2ND: 4', 3RD: 2 2/3' */
     T->plev = perc == 3u || perc == 4u ? 12000 : 24000;
-    T->pdec = perc >= 5u ? 65457u : 65219u;             /* tau 0.6 s / 0.15 s */
+    T->pdec = perc >= 5u ? FE_WHEEL_PDEC_SLOW : FE_WHEEL_PDEC_FAST;   /* tau 0.6 s / 0.15 s (dsp.c: at FS) */
     T->clk = p[P_E5] * 180;
     if (p[P_E6]) {                                      /* y = 6 / (2 + g) tanh(g x / 2) */
         T->dg = 256 + p[P_E6] * 6;                      /* 1 .. 4 */
@@ -155,19 +156,21 @@ static void wheel_block(track_t *t)
     } else {
         T->dg = 0;
     }
-    /* rotors: each speed eases to its target (high rotor tau ~0.37 s, low ~1.5 s) */
+    /* rotors: each speed eases to its target (high rotor tau ~0.37 s, low ~1.5 s); the block-rate smoothers'
+     * shifts gain FE_OCT at higher rates (dsp.c) */
     for (k = 0; k < 2u; k++) {
         int32_t sp, c, sn, dep;
-        T->rsp[k] += (DRW_ROT_SPD[k][rot] - T->rsp[k]) >> (k ? 11 : 9);
+        T->rsp[k] += (DRW_ROT_SPD[k][rot] - T->rsp[k]) >> ((k ? 11 : 9) + FE_OCT);
         sp = T->rsp[k];
         T->rph[k] += (uint32_t)sp;
         sn = sine_i(T->rph[k]);
         c = sine_i(T->rph[k] + 0x40000000u);
         dep = k ? 7000 : 13000;                         /* AM depth: low rotor 21 %, high 40 % */
         T->am[k] = 32767 - mulq15(dep, (32767 - c) >> 1);
-        T->fm[k] = (sn * (sp >> (k ? 17 : 16))) >> 15;  /* Doppler: +-0.5 % fast (high), +-0.2 % (low) */
+        /* Doppler: +-0.5 % fast (high), +-0.2 % (low); sp (a block's phase) is smaller at higher rates: FE_T */
+        T->fm[k] = (sn * FE_T(sp >> (k ? 17 : 16))) >> 15;
     }
-    T->rwet += ((rot ? 32767 : 0) - T->rwet) >> 5;      /* ~25 ms in or out */
+    T->rwet += ((rot ? 32767 : 0) - T->rwet) >> (5 + FE_OCT);   /* ~25 ms in or out */
     for (k = 0; k < 2u; k++) {
         T->am[k] = 32767 - mulq15(T->rwet, 32767 - T->am[k]);
         T->fm[k] = mulq15(T->fm[k], T->rwet);
@@ -244,13 +247,13 @@ static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     clk0 = mulq15(V->clk, T->clk);
     if (clk0 > 16) {
         int32_t nst = V->nz, hp = V->hp, dc;
-        V->clk = (V->clk * 3) >> 2;                     /* tau ~2.5 ms */
+        V->clk = (V->clk * FE_WHEEL_CLKDEC) >> 15;      /* tau ~2.5 ms (3 / 4 a block at 44.1 kHz) */
         clk1 = mulq15(V->clk, T->clk);
         dc = clk1 - clk0;
         clk0 <<= 5;
         for (i = 0; i < n; i++) {
             int32_t z = (int32_t)(noise32(&nst) >> 17) - 16384, y = z - hp;
-            hp += y >> 3;
+            hp += y >> (3 + FE_OCT);
             clk0 += dc;
             acc[i] += (y * (clk0 >> 5)) >> 15;
         }
@@ -263,7 +266,7 @@ static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
             acc[i] = (softclip((acc[i] * dg) >> 9) * dcomp) >> 8;
     }
     for (i = 0; i < n; i++)                             /* acc: Q15 with headroom to 4.0 */
-        out[i] += voice_amp(acc[i] >> 1, m, i) << 1;
+        out[i] += shl(voice_amp(acc[i] >> 1, m, i), 1);
 }
 
 static const preset_t WHEEL_PRESETS[] = {

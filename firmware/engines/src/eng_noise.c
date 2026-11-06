@@ -52,6 +52,8 @@ static const param_desc_t *noise_desc(const track_t *t, uint32_t k)
     return 0;
 }
 
+#define NOISE_THR_K ((uint32_t)((1ull << 32) / FS))   /* 65536 * 65536 / FS (97391 at 44.1 kHz) */
+
 /* phase increment of pitch p (1/16 semitone) past the table's top, up to one step a sample */
 static uint32_t noise_inc(int32_t p)
 {
@@ -109,10 +111,10 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         if (--cnt <= 0) {
             uint32_t r = noise32(&rng);
             tg = (int32_t)(r >> 16) - 32768;
-            cnt = 1024 + (int32_t)(r & 3071u);
+            cnt = FE_T(1024 + (int32_t)(r & 3071u));   /* blocks (at 44.1 kHz; FE_T: the same time at FS) */
         }
         v->s[3] = (int32_t)((uint32_t)tg << 16 | (uint32_t)cnt);
-        drift += ((tg << 4) - drift) >> 10;           /* Q19 */
+        drift += (shl(tg, 4) - drift) >> (10 + FE_OCT);  /* Q19 */
         d16 = ((drift >> 11) * drft * drft) >> 14;    /* up to about +-16 semitones */
         gain = 32767 - ((((32767 - (drift >> 4)) >> 1) * drft) >> 8);   /* down to -6 dB as it falls */
     }
@@ -145,7 +147,7 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     if (mode <= NZ_DUST && p[P_E5]) {                 /* impulses: 1 .. 2000 a second */
         uint32_t e = (uint32_t)p[P_E5] * 22u, r = 1u << (e >> 8);   /* 2^(DENS * 11 / 127), Q8 fraction */
         r += (r * (e & 255u)) >> 8;
-        thr = (int32_t)((r * 97391u) >> 16);          /* per 2^16 of a sample: rate * 65536 / FS, Q16 */
+        thr = (int32_t)((r * NOISE_THR_K) >> 16);     /* per 2^16 of a sample: rate * 65536 / FS, Q16 */
     }
     if (mode == NZ_LFSR) {
         uint32_t mask = taps;                         /* the register's own bits (MODE / LEN changes) */
@@ -192,14 +194,14 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         x = w;
         if (colr) {                                   /* pink: three leaky poles (Kellet), brown: a leaky integrator */
             int32_t pk;
-            b0 = ((b0 * 32690) >> 15) + ((w * 3245) >> 15);
-            b1 = ((b1 * 31555) >> 15) + ((w * 9716) >> 15);
-            b2 = ((b2 * 18678) >> 15) + ((w * 17247) >> 14);
+            b0 = (mul_wrap(b0, FE_NOISE_PINK0_P) >> 15) + ((w * FE_NOISE_PINK0_G) >> 15);   /* (dsp.c: at FS) */
+            b1 = (mul_wrap(b1, FE_NOISE_PINK1_P) >> 15) + ((w * FE_NOISE_PINK1_G) >> 15);
+            b2 = (mul_wrap(b2, FE_NOISE_PINK2_P) >> 15) + ((w * FE_NOISE_PINK2_G) >> 14);
             pk = (b0 + b1 + b2 + ((w * 6055) >> 15)) >> 2;
             if (colr <= (64 << 8)) {
                 x = w + mulq15(pk - w, cf);
             } else {
-                br = ((br * 32580) >> 15) + ((w * 3480) >> 15);
+                br = (mul_wrap(br, FE_NOISE_BROWN_P) >> 15) + ((w * FE_NOISE_BROWN_G) >> 15);
                 x = pk + mulq15(br - pk, cf);
             }
         }
@@ -214,13 +216,13 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         y = v2 + (((v1 - v2) * (mix >> 3)) >> 12);
         y = soft_knee(((y >> 4) * gq) >> 8, 24000);
         if (mode == NZ_META) {                        /* the knee bends a lopsided tone: a DC blocker, ~14 Hz */
-            reg += (uint32_t)(((y << 8) - (int32_t)reg) >> 9);
+            reg += (uint32_t)((shl(y, 8) - (int32_t)reg) >> (9 + FE_OCT));
             y -= (int32_t)reg >> 8;
         }
-        if (crsh) {                                   /* hold 1..16 samples, 16 .. 4 bits */
-            if ((int32_t)--ph <= 0 || ph > 16u) {
-                ph = 1u + (uint32_t)crsh / 8u;
-                reg = (uint32_t)(y >> (crsh / 11) << (crsh / 11));
+        if (crsh) {                                   /* hold 1..16 samples (at 44.1 kHz), 16 .. 4 bits */
+            if ((int32_t)--ph <= 0 || ph > (uint32_t)FE_T(16)) {
+                ph = FE_HOLD(1u + (uint32_t)crsh / 8u);
+                reg = (uint32_t)shl(y >> (crsh / 11), (uint32_t)(crsh / 11));
             }
             y = (int32_t)reg;
         }

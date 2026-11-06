@@ -87,7 +87,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 #define PREF_CPU2_ON (0x80u << 16)              /* MENU > SYSTEM > 2ND CORE ON (BETA): the second core from the next
                                                  * power-on (main.c); clear = OFF, one core as 1.6 (every older setting:
                                                  * 1.6 never set bit 7). It turns itself OFF when core 1 misreads
-                                                 * (hal/fm1_cpu1.h). (The 1.6.1 dual-core beta build had it the other
+                                                 * (bsp/chip/fm1_cpu1.h). (The 1.6.1 dual-core beta build had it the other
                                                  * way round, 0 AUTO / 1 OFF) */
 /* MENU > CONTROL > SELECT: 0 BPM, 1 PAGE (1.5.5, #188), 2 MODW, 3 VEL (1.5.6, #84: ui_input.c sel_play), bit 4 and bit 6 of
  * ui_prefs2 (0 in every older setting = BPM; 1.5.5's PAGE keeps its bit; firmware before 1.5.6 reads MODW as BPM and
@@ -434,6 +434,14 @@ static uint32_t layer_btn(void);
  * track's (its patch's operators, ui_fm6op.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].own)                                 /* an engine's own page (SWARM, FMTONE: params.c) */
+        return TSEL->eng_req % NENGINES == (uint32_t)PAGES[i].own - 1u;
+#if FELUCCA_SHDRUM
+    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'H' && PAGES[i].title[2] == ' ')   /* SHDRUM's pages (params.c) */
+        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SHDRUM;
+    if (PAGES[i].title[0] == 'S' && PAGES[i].title[1] == 'K' && PAGES[i].title[2] == ' ')   /* DRUM KIT SH's pages (params.c) */
+        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_DRUM && TSEL->p[P_E0] == DK_SH;
+#endif
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -1270,36 +1278,27 @@ static void pat_load_ui(track_t *t, uint32_t n)
     ui_say("LOADED ", b);
 }
 
-/* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
- * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
- * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
- * insert, which chops whatever the track plays in time with its sequencer */
-static int param_kept(uint32_t i)
-{
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
-}
 
 /* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
  * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for.
  * (SAMPLE 4, once PERC, is past SMP_NPRESETS: apply_preset_to loads it as DRUM) */
-static uint32_t preset_orig(const engine_t *e, uint32_t k)
-{
-    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
-}
 
 /* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
 static uint32_t preset_rank(const engine_t *e, uint32_t k)
 {
     uint32_t i, n = 0;
-    if (e->presets != SMP_PRESET_TABLE)
+    if (!IS_SMP_TABLE(e))
         return k;
     for (i = 0; i < k; i++)
         n += preset_orig(e, i) == i;
     return n;
 }
 
-#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
+#if FELUCCA_SAMPLE
+#define preset_shown(e) (ENGINES[e]->npresets - (IS_SMP_TABLE(ENGINES[e]) ? SMP_NALIAS : 0u))
+#else
+#define preset_shown(e) (ENGINES[e]->npresets)
+#endif
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1355,10 +1354,12 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     }
 #endif
+#if FELUCCA_SAMPLE
     if (t->eng_req % NENGINES == ENGI_SAMPLE && pi == SMP_SET_PERC) {   /* SAMPLE preset 4 was PERC (retired, a stored */
         set_engine_of(t, ENGI_DRUM);                  /* number: the editor's PRESET, a favourite): DRUM's kit */
         return;                                       /* (core.h drum_from_perc) */
     }
+#endif
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
     t->user = 0;
@@ -1388,8 +1389,18 @@ static void apply_preset_to(track_t *t, uint32_t pi)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
+#if FELUCCA_SHDRUM
+    if (e == &ENG_SHDRUM)                             /* SHDRUM: the preset's layers and effects (eng_shdrum.c) */
+        shd_load(t, pi);
+    if (e == &ENG_DRUM)                               /* DRUM: the kit's lane sounds (KIT SH, eng_drum.c) */
+        shk_load(t, pi);
+#endif
+    fmt_track_loaded(t);                              /* FMTONE: the preset's operator slots (eng_fmtone.c) */
+    swm_track_loaded(t);                              /* SWARM: the preset's filter (RES, KEY, TYPE) */
+    wvt_track_loaded(t);                              /* WAVETONE: the preset's slots */
     load_end(t);
 }
+
 
 /* the engine's defaults and its first preset. With the audio IRQ off: the ISR sees the old engine with
  * its values or the new one with its own (voice.c engine_block), never one with the other's */
@@ -1416,11 +1427,29 @@ static void set_engine_of(track_t *t, uint32_t ei)
 static void apply_preset(uint32_t pi) { apply_preset_to(TSEL, pi); }
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
+/* TOOLS INIT and CLEAN INIT also take the SLICER (P_SLCR .. P_SLDEPTH) back to its defaults (OFF): it is a track setting a
+ * sound load (a preset, an engine jump) leaves alone (param_kept), and a last session's autosave brings it back at power-on,
+ * so INIT is the way to clear it. Not part of the load's undo copy (undo_swap swaps what param_kept does not keep) */
+static void slicer_reset(track_t *t)
+{
+    uint32_t i;
+    fm1_irq_off();
+    for (i = P_SLCR; i <= P_SLDEPTH; i++)
+        t->p[i] = TP[i].def;
+    fm1_irq_on();
+}
+/* INIT: the engine's defaults + its first preset (the steps stay), and the SLICER off */
+static void init_sound(void)
+{
+    set_engine(TSEL->eng_req);
+    slicer_reset(TSEL);
+}
+
 /* CLEAN INIT (1.5.5, #190): the engine's basic sound, nothing added: E1..E8 at the engine's own defaults (not its first
  * preset's), every other sound value at its default (TP: no FX sends DIST CHO DLY REV, INSERT OFF, no LFO or ENV DEST
  * amounts, the MOD slots off, no GLIDE, POLY), the ENV neutral (ATK 0, SUS 100 %, a short REL; DRUM: its kit's own, so
  * the hits ring as they should); FM6 the init voice (one sine carrier, ALGORITHM 1; SLOT OWN). What INIT keeps stays
- * (param_kept: LEVEL PAN MUTE, ARP, SCL, the sequence, SLICER, the chord keys); the steps stay. One undo, as INIT
+ * (param_kept: LEVEL PAN MUTE, ARP, SCL, the sequence, the chord keys; the SLICER is taken off); the steps stay. One undo, as INIT
  * (SAVE held). INIT itself is unchanged (the engine's defaults and its first preset) */
 #define CLEAN_REL 40                                   /* ~18 ms */
 static void clean_engine_of(track_t *t)
@@ -1452,6 +1481,13 @@ static void clean_engine_of(track_t *t)
         t->p[P_REL] = CLEAN_REL;
     }
     fm1_irq_on();
+    slicer_reset(t);                                  /* the SLICER off (INIT takes it back too) */
+#if FELUCCA_SHDRUM
+    if (ei == ENGI_SHDRUM)                            /* SHDRUM: its layers and effects at their defaults */
+        shd_defaults(t);
+    if (ei == ENGI_DRUM)                              /* DRUM: KIT SH's lane sounds at their defaults */
+        shk_defaults(t);
+#endif
     if (ei == ENGI_FM6) {                             /* the init voice as the track's own patch (SLOT: OWN) */
         uint8_t v[FP_SIZE + 1u];
         fm6_unpack(FM6_INIT, v);

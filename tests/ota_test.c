@@ -114,7 +114,7 @@ static int ota_fread(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + of
 static void ota_show(uint32_t step, int32_t code) { if (step == 9) last_code = code; }
 static void ota_commit(const uint8_t *parm) { committed = 1; memcpy(committed_parm, parm, 112); }
 
-#include "../firmware/src/ota.c"
+#include "../firmware/bsp/chip/ota.c"
 
 static uint32_t ota_body_off(void)                  /* ota.bin data + 0x20 in the logical image */
 {
@@ -231,8 +231,9 @@ int main(int argc, char **argv)
         reset_dev();
         set_fl_size(logical, 0x9D000u);
         rc = ota_session();
-        bad += check("another board's size (0x9D000): -15, no commit, no erase", rc == -15 && !committed && erases == 0 &&
-                     area_erased());
+        /* bsp/chip/ota.c stages any well-made writer (Felucca's own, M-VAVE's: the way back to V15, #274); Felucca's
+         * loader then refuses a flash.bin that is not this board's size (-14, ldr_test.c) and writes nothing */
+        bad += check("another board's size (0x9D000): staged for the loader, which refuses it (ldr_test)", rc == 0 && committed);
         memcpy(logical, keep, sizeof keep);
     }
     /* host disappears in the middle */

@@ -49,6 +49,17 @@ def main(path):
     fc = fe.cutoff_hz()
     L += arr("CUTOFF_HZ", "uint16_t", [int(round(f)) for f in fc])
     L += fe.svf_g()              # the trapezoidal SVF's g = tan(pi fc / FS), Q12
+    # the resonant filter of SWARM and FMTONE (rsvf.c; from Mini-Tone): the same cutoffs as g = tan(pi f / FS) in Q24, 128 points\
+    # and the one above the last (low cutoffs need the precision: g is 0.002 at 30 Hz)
+    fc2 = fc + [fc[-1] * (16000 / 30) ** (1 / 127)]
+    L += arr("RSVF_G", "uint32_t", [int((1 << 24) * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc2], 8)
+    # its resonance: damping k = 1 / Q in Q12, signed. Q 0.5 .. 32 over RES 0..112 (exponential: the same musical step at every
+    # setting), then k falls through 0 (RES 117: the filter rings on its own) to -0.063 at 127
+    res_k = []
+    for r in range(128):
+        k = 1.0 / (0.5 * 2 ** (r * 6 / 112)) if r <= 112 else 1 / 32 - (r - 112) * 0.0063
+        res_k.append(int(round(k * 4096)))
+    L += arr("RES_K", "int16_t", res_k)
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
     L += arr("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** (d / 20))) for d in db[1:]])
@@ -58,6 +69,7 @@ def main(path):
     L += arr("DECAY_K", "uint16_t", [min(65535, int(65536 * math.exp(-6.9 / (m / 1000 * FS)))) for m in dms])
     L += fe.tanh_q15()           # soft clip curve (tanh), Q15
     L += fm6_tables()
+    L += wavetone_tables()
     Path(path).write_text("\n".join(L) + "\n")
 
 
@@ -99,6 +111,101 @@ def fm6_tables():
     L += arr("FM6_FINE", "int32_t", [int(math.floor(24204406.323123 * math.log(1 + 0.01 * f) + 0.5)) for f in range(100)], 10)
     return L
     print(f"tables: {path}")
+
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# WAVETONE's wavetables (eng_wavetone.c): two families of eight frames (PRIM: shapes; HARM: harmonic sets), each frame
+# band-limited at six mip levels. A level keeps the harmonics up to its cap H and is stored as 4 .. 8 x H samples (+ the
+# guard point: the linear interpolation needs no wrap); the pitch picks the level (WT_LEVEL_P16): H x f0 stays below
+# 0.9 x Nyquist. Above the last level the engine plays a sine. All frames share one scale per frame (RMS 0.5 of
+# full scale, the peak held to 1.0, then x 0.9: a Gibbs overshoot of 9 % stays inside 16 bits), so the morph keeps its
+# loudness. No frame has DC (the 0th harmonic is not summed).
+WT_NFRAME = 8
+WT_FAMILIES = ("PRIM", "HARM")
+WT_LEVELS = ((64, 256), (32, 128), (16, 64), (8, 32), (4, 16), (2, 16))      # (harmonic cap H, table length N)
+WT_MAXH = 127
+
+
+def _seg_ab(h, segs):
+    """a_h, b_h (f = sum a cos + b sin, h >= 1) of a piecewise linear f given as (x0, v0, x1, v1) over [0, 2 pi]: exact"""
+    a = b = 0.0
+    for x0, v0, x1, v1 in segs:
+        sl = (v1 - v0) / (x1 - x0)
+        a += (v1 * math.sin(h * x1) - v0 * math.sin(h * x0)) / h + sl * (math.cos(h * x1) - math.cos(h * x0)) / (h * h)
+        b += (-v1 * math.cos(h * x1) + v0 * math.cos(h * x0)) / h + sl * (math.sin(h * x1) - math.sin(h * x0)) / (h * h)
+    return a / math.pi, b / math.pi
+
+
+def _pulse(w):
+    """a, b of a +-1 pulse of duty w centred at pi / 2 (its fundamental is a sine's phase: a morph from a sine lines up)"""
+    ab = {}
+    for h in range(1, WT_MAXH + 1):
+        c = 4 * math.sin(math.pi * h * w) / (math.pi * h)
+        ab[h] = (c * math.cos(h * math.pi / 2), c * math.sin(h * math.pi / 2))
+    return ab
+
+
+def _wt_frames():
+    two_pi = 2 * math.pi
+    fr = {}
+    fr[("PRIM", 0)] = {1: (0.0, 1.0)}
+    fr[("PRIM", 1)] = {h: (0.0, 8 / (math.pi ** 2 * h * h) * (-1) ** ((h - 1) // 2)) for h in range(1, WT_MAXH + 1, 2)}
+    fr[("PRIM", 2)] = _pulse(0.5)
+    fr[("PRIM", 3)] = {h: (0.0, 2 / (math.pi * h)) for h in range(1, WT_MAXH + 1)}
+    fr[("PRIM", 4)] = _pulse(0.25)
+    fr[("PRIM", 5)] = _pulse(0.125)
+    r = 0.15
+    skew = [(0.0, -1.0, two_pi * r, 1.0), (two_pi * r, 1.0, two_pi, -1.0)]
+    fr[("PRIM", 6)] = {h: _seg_ab(h, skew) for h in range(1, WT_MAXH + 1)}
+    fr[("PRIM", 7)] = {h: (-4 / (math.pi * (h * h - 1)), 0.0) for h in range(2, WT_MAXH + 1, 2)}      # |sin|, DC dropped
+    hm = {0: {1: 1.0}, 1: {1: 1.0, 2: 0.5}, 2: {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4},
+          3: {h: 1.0 / h for h in range(1, 16, 2)}, 4: {h: 1.0 / h for h in range(1, 13)}}
+    hm[5] = {h: (0.4 if h == 1 else math.exp(-(((h - 5) / 1.8) ** 2))) for h in range(1, 11)}
+    hm[6] = {h: (1.0 if h == 1 else (1.0 if h % 2 == 0 else 0.35) / math.sqrt(h)) for h in range(1, 25)}
+    hm[7] = {h: 1.0 / math.sqrt(h) for h in range(1, WT_MAXH + 1)}
+    for i in range(WT_NFRAME):
+        fr[("HARM", i)] = {h: (0.0, v) for h, v in hm[i].items() if v > 1e-4}
+    return fr
+
+
+def _wt_synth(ab, hmax, n):
+    out = []
+    for i in range(n):
+        ph = 2 * math.pi * i / n
+        out.append(sum(a * math.cos(h * ph) + b * math.sin(h * ph) for h, (a, b) in ab.items() if h <= hmax))
+    return out
+
+
+def wavetone_tables():
+    fr = _wt_frames()
+    L = ["/* WAVETONE (eng_wavetone.c): %d families x %d frames, %d mip levels, from tools/gen_tables.py wavetone_tables */"
+         % (len(WT_FAMILIES), WT_NFRAME, len(WT_LEVELS)),
+         f"#define WT_NFRAME {WT_NFRAME}", f"#define WT_NFAM {len(WT_FAMILIES)}", f"#define WT_NLEV {len(WT_LEVELS)}"]
+    scale = {}
+    for key, ab in fr.items():
+        full = _wt_synth(ab, WT_MAXH, 2048)
+        rms = math.sqrt(sum(v * v for v in full) / len(full))
+        peak = max(abs(v) for v in full)
+        scale[key] = 0.9 * min(0.5 / rms, 1.0 / peak)
+    # the pitch (1/16 semitone) from which a level's cap is too many harmonics: H x f0 > 0.9 x Nyquist
+    p16 = [int((69 + 12 * math.log2(0.9 * FS / 2 / (hc * 440.0))) * 16) for hc, _ in WT_LEVELS]
+    L += arr("WT_LEVEL_P16", "uint16_t", p16)
+    L += arr("WT_LEN_LOG2", "uint8_t", [int(math.log2(n)) for _, n in WT_LEVELS])
+    total = 0
+    for k, (hc, n) in enumerate(WT_LEVELS):
+        vals = []
+        for fam in WT_FAMILIES:
+            for i in range(WT_NFRAME):
+                key = (fam, i)
+                t = [int(round(32767 * scale[key] * v)) for v in _wt_synth(fr[key], hc, n)]
+                assert max(abs(v) for v in t) <= 32767, (key, k)
+                vals += t + [t[0]]                                                   # the guard point
+        total += len(vals)
+        L += arr(f"WT_L{k}", "int16_t", vals, 16)
+    L.append(f"/* {total} samples: {total * 2} bytes of flash */")
+    L.append("static const int16_t *const WT_TAB[WT_NLEV] = {" + ", ".join(f"WT_L{k}" for k in range(len(WT_LEVELS))) + "};")
+    return L
 
 
 if __name__ == "__main__":

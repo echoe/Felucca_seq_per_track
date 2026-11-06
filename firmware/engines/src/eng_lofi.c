@@ -60,6 +60,8 @@ static const param_desc_t *lofi_desc(const track_t *t, uint32_t k)
  * frame clock (Q16 phase in v->s[7]); each frame the divider counts down and, at 0, reloads the
  * period and takes one step off the volume (a looping one starts again at 15 after 0) */
 #define FRAME_Q16 ((240u * CTL * 65536u) / FS)       /* frames per control tick, Q16 */
+#define LOFI_SWEEP_Q8 ((int32_t)((256u * 44100u + FS / 2u) / FS))   /* 1/4096 semitone per SWP / 8, a block */
+#define LOFI_VIB_INC ((uint32_t)(0x01000000ull * 44100u / FS))      /* vibrato phase a block: ~5.4 Hz */
 static int32_t step_period(int32_t b) { return b <= 16 ? b - 1 : b - 16; }
 
 static void lofi_note_on(track_t *t, voice_t *v)
@@ -67,7 +69,7 @@ static void lofi_note_on(track_t *t, voice_t *v)
     v->s[0] = 0;                 /* held sample */
     v->s[1] = 0;                 /* hold counter */
     v->s[2] = 0x7FFF;            /* LFSR */
-    v->s[3] = 0;                 /* sweep, 1/16 st */
+    v->s[3] = 0;                 /* sweep, 1/4096 st */
     v->s[4] = 0;                 /* 1-pole lp state */
     v->s[5] = 0;                 /* arp counter */
     v->s[6] = 15 | (step_period(t->p[P_E3] >> 2) & 15) << 4;   /* stepped env: every note-on restarts it */
@@ -124,7 +126,7 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
                           : 0x20000000u * (1u + (uint32_t)p[P_E2] / 32u);   /* 12.5 / 25 / 37.5 / 50 % */
     int32_t crush = stepc ? 0 : p[P_E3];                /* STEP: CRSH is the envelope */
     int32_t bits = chip == CHIP_8BIT ? 8 : chip == CHIP_1BIT ? 1 : 4;
-    int32_t hold = 1 + crush / 8 + (chip == 1u ? 1 : 0);
+    int32_t hold = FE_HOLD(1 + crush / 8 + (chip == 1u ? 1 : 0));   /* samples at 44.1 kHz, the same time at FS */
     int32_t lpk = 3000 + (p[P_E7] << 8) + (m->cutoff > 0 ? m->cutoff : 0);
     static const int8_t ARPS[4][3] = {{0, 0, 0}, {0, 12, 0}, {0, 4, 7}, {0, 3, 7}};
     int32_t ar = p[P_E6];
@@ -138,17 +140,19 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             sum += bits == 1 ? ((wr[i] >> 7) + ((wr[i] >> 3) & 1)) * 2 - 2 : (wr[i] >> 4) + (wr[i] & 15) - 15;
         wdc = bits == 1 ? sum * 32767 / 32 : sum * 2 * Q4 / 32;   /* (2 v - 15) Q4, or +-32767 at 1 bit */
     }
-    /* sweep down, vibrato (uses the track LFO through m->pitch16 already) */
-    if (v->s[3] < 4096)                                 /* past 2047 + an arp step the pitch is 0 anyway */
-        v->s[3] += p[P_E4] / 8;
+    /* sweep down (s[3]: 1/4096 semitone; SWP / 8 1/16 semitone a 44.1 kHz block), vibrato (uses the track LFO
+     * through m->pitch16 already) */
+    if (v->s[3] < (4096 << 8))                          /* past 2047 + an arp step the pitch is 0 anyway */
+        v->s[3] += p[P_E4] / 8 * LOFI_SWEEP_Q8;
     v->s[5]++;
-    pitch = m->pitch16 - v->s[3] + ARPS[ar & 3][(v->s[5] / 28) % 3] * 16;   /* ~50 Hz, chip-style */
+    pitch = m->pitch16 - (v->s[3] >> 8) + ARPS[ar & 3][(v->s[5] / FE_T(28)) % 3] * 16;   /* ~50 Hz, chip-style */
     inc = pitch_inc(clamp(pitch, 0, 2047));
     if (p[P_E5])
         inc += (uint32_t)(((int32_t)(inc >> 12) * (((osc_sine(v->ph[1]) >> 8) * p[P_E5]) >> 4)) >> 4);   /* no overflow */
-    v->ph[1] += 0x01000000u;
+    v->ph[1] += LOFI_VIB_INC;
     if (lpk > 32767)
         lpk = 32767;
+    lpk = fe_pole(lpk);                                 /* TONE's corner (set at 44.1 kHz) at FS */
     for (i = 0; i < n; i++) {
         int32_t s;
         if (--cnt <= 0) {
@@ -187,9 +191,9 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
                 break;
             }
             if (q)                                      /* rounded, not floored (floor = DC) */
-                s = ((s + (1 << (15 - bits))) >> (16 - bits)) << (16 - bits);
+                s = shl((s + (1 << (15 - bits))) >> (16 - bits), 16 - bits);
             if (crush > 64)
-                s = (s >> 12) << 12;
+                s = shl(s >> 12, 12);
             held = s;
         }
         ph0 += inc;

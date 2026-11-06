@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Host test of 1.5.5's PHASE FOLD (Discussion #104; src/eng_phase.c, E7), same sources as the firmware (hostsim.c):
+/* Host test of 1.5.5's PHASE FOLD (Discussion #104; engines/src/eng_phase.c, E7), same sources as the firmware (hostsim.c):
  *   build/host/fold155_test [DEMO_DIR]      (run_tests.sh builds and runs it; the demo in build/fold155_demo/)
  * 1. the parameter: E7 "FOLD" 0..127, default 0; every factory PHASE preset at FOLD 0.
  * 2. FOLD 0 bit for bit: the engine against a copy of 1.5.1's render loop (ref_render below), every WAVE, WAVE2,

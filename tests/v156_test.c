@@ -204,6 +204,7 @@ static int humanize(void)
     return bad;
 }
 
+#if !FELUCCA_DRUMX                              /* (the old drum voices' kits DEEP TIGHT PERC: FELUCCA_DRUMX=0) */
 /* -------------------------------------------------------------- KITS --- */
 /* (#216) DEEP TIGHT PERC: appended kit values 9..11 and DRUM presets 1..3 (the first, DRUM KIT, as it was); each lane one
  * of the five kits' (DEEP's kick tuned down); the lanes' names; they play; a project keeps them; what older firmware
@@ -220,7 +221,7 @@ static int kits(void)
     track_t *t;
     int32_t s;
     static int32_t kbuf[2 * CTL];
-    ok = DK_DEEP == 9 && DK_TIGHT == 10 && DK_PERC == 11 && DK_COUNT == 12 && DV_NKIT == 8 && d->max == DK_PERC &&
+    ok = DK_DEEP == 9 && DK_TIGHT == 10 && DK_PERC == 11 && DK_COUNT == 12 + FELUCCA_SHDRUM && DV_NKIT == 8 && d->max == DK_COUNT - 1 &&
          str_eq(d->names[DK_DEEP], "DEEP") && str_eq(d->names[DK_TIGHT], "TIGHT") && str_eq(d->names[DK_PERC], "PERC");
     for (k = 0; k < 3u; k++)
         for (l = 0; l < DV_NLANE; l++) {
@@ -232,7 +233,7 @@ static int kits(void)
         }
     bad += check("KITS (#216): DEEP TIGHT PERC appended (9..11), each lane one of the five kits' (DEEP's kick 2 st down)", ok);
 
-    ok = ENG_DRUM.npresets == 4u && str_eq(ENG_DRUM.presets[0].name, "DRUM KIT") && ENG_DRUM.presets[0].e[0] == DK_STD &&
+    ok = ENG_DRUM.npresets == 4u + 3u * FELUCCA_SHDRUM && str_eq(ENG_DRUM.presets[0].name, "DRUM KIT") && ENG_DRUM.presets[0].e[0] == DK_STD &&
          str_eq(ENG_DRUM.presets[1].name, "DEEP KIT") && ENG_DRUM.presets[1].e[0] == DK_DEEP &&
          str_eq(ENG_DRUM.presets[2].name, "TIGHT KIT") && ENG_DRUM.presets[2].e[0] == DK_TIGHT &&
          str_eq(ENG_DRUM.presets[3].name, "PERC KIT") && ENG_DRUM.presets[3].e[0] == DK_PERC;
@@ -276,6 +277,7 @@ static int kits(void)
     bad += check("  a project keeps the kit; a 1.5.1-range KIT reads 9..11 as 77 (the README's downgrade note)", ok);
     return bad;
 }
+#endif
 
 /* -------------------------------------------------------------- LEDS --- */
 /* (#212) MENU > LEDS INV LO / INV HI: appended values (0..3 as before); INV's lit ones at the mid level (HI ~12.5 %, LO
@@ -424,7 +426,12 @@ static int select_play(void)
 
 int main(void)
 {
-    int bad = humanize() + kits() + leds() + select_play();
+#if FELUCCA_DRUMX
+#define KITS_CHECK 0
+#else
+#define KITS_CHECK kits()
+#endif
+    int bad = humanize() + KITS_CHECK + leds() + select_play();
     printf("%s\n", bad ? "1.5.6 TEST FAILED" : "1.5.6 tests passed");
     return bad != 0;
 }

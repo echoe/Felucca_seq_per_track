@@ -58,7 +58,7 @@ void isr_alnk0(void) {}
 
 /* ------------------------------------------------------------ the panel --- */
 #define FM1_NCOL 11u
-static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {      /* as hal/fm1_input.h: key id at (column, row bit) */
+static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {      /* as bsp/boards/fm1/fm1_input.h: key id at (column, row bit) */
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
     { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1},
     {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12},
@@ -69,10 +69,10 @@ static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {      /* as hal/fm1_input.h: key 
 static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL], fm1_led_breath[FM1_NCOL], fm1_led_mid[FM1_NCOL];
 static uint32_t web_dim_lo;
 static void fm1_led_dim_level(uint32_t lo) { web_dim_lo = lo; }
-/* the power-on LED sweep (hal/fm1_input.h fm1_led_anim_start, the picture hal/fm1_led_anim.h): its frame from the
+/* the power-on LED sweep (bsp/boards/fm1/fm1_input.h fm1_led_anim_start, the picture bsp/boards/fm1/fm1_led_anim.h): its frame from the
  * clock (a scan frame 1.1 ms), the page draws each LED's level (web_anim_levels); at its end, or on a key or a button
  * down, the last picture (the glow everywhere, or dark) and the UI's LEDs from the next frame, as the scan does */
-#include "../../firmware/hal/fm1_led_anim.h"
+#include "../../firmware/bsp/boards/fm1/fm1_led_anim.h"
 static uint32_t web_anim_t0, web_anim_glow, web_anim_run, web_anim_idle;   /* (idle: 1.2's idle animation, MENU >
                                                                               * ANIM IDLE: fm1_idle_level, endless) */
 static uint32_t web_anim_frame(void) { return (web_ticks - web_anim_t0) / (1100u * FM1_TICKS_PER_US); }
@@ -237,13 +237,11 @@ static void fm1_mailbox_clear(void) {}
 static void fm1_guard_enable(uint32_t m) { (void)m; }
 enum { FM1_GUARD_STACK = 1, FM1_GUARD_WRITE = 2, FM1_GUARD_BUS = 4, FM1_GUARD_PC = 8 };
 #if FELUCCA_CPU2
-/* the second core (hal/fm1_cpu1.h): none here, one core whatever MENU > 2ND CORE says (fx.c mix_block's C1_ON() is 0
- * without felucca.c's macros) */
-uint32_t _c1_start[1], _c1_end[1], _c1_load[1];
-static uint8_t fm1_c1_on, fm1_c1_gave_up;
-static void fm1_cpu1_halt(void) {}
+/* the second core (felucca-bsp chip/fm1_cpu1.h): none here, one core whatever MENU > 2ND CORE says (fx.c mix_block's
+ * C1_ON() is 0 without felucca.c's macros) */
+static uint8_t fm1_cpu1_on, fm1_cpu1_gave_up;
+static void fm1_cpu1_stop(void) {}
 static int fm1_cpu1_start(void) { return -1; }
-static void fm1_guard_pc_open(void) {}
 #endif
 #if FELUCCA_CDC
 static void cdc_task(void) {}
@@ -443,7 +441,7 @@ EXPORT uint32_t web_dim_level(void) { return web_dim_lo; }
 EXPORT uint32_t web_breath_buttons(void) { return led_buttons(fm1_led_breath); }   /* #119: dark .. ~60 % of lit */
 EXPORT uint32_t web_breath_keys(void) { return led_keys(fm1_led_breath); }
 EXPORT uint32_t web_mid_keys(void) { return led_keys(fm1_led_mid); }   /* the DRUM grid's beats: a steady mid level */
-/* the power-on sweep (or 1.2's idle animation) running: each LED's level now (hal/fm1_led_anim.h: 0..64 /64 of lit, | 0x80 the glow under
+/* the power-on sweep (or 1.2's idle animation) running: each LED's level now (bsp/boards/fm1/fm1_led_anim.h: 0..64 /64 of lit, | 0x80 the glow under
  * it), 0..13 the buttons by label, 14..40 the keys F3..G5; 0 when it is not */
 EXPORT uint8_t *web_anim_levels(void)
 {

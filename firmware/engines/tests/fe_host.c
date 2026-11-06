@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca-Engines: a standalone host. Renders every preset of the five engines through a fixed phrase on a
+/* Felucca-Engines: a standalone host. Renders every preset of the six engines through a fixed phrase on a
  * minimal track / voice / envelope and prints one line per render: an FNV-1a 64 hash of the output and its
  * peak. tests/run.sh compares the lines with tests/golden.txt: a change of any engine's sound fails.
  *   cc -O2 -I build -o fe_host tests/fe_host.c          (build/fe_tables.h from tools/gen_engine_tables.py)
@@ -29,6 +29,7 @@ static track_t trk[NPART];
 
 #include "../src/dsp.c"
 #include "../src/eng_analog.c"
+#include "../src/eng_phase.c"
 #include "../src/eng_lofi.c"
 #include "../src/eng_trio.c"
 #include "../src/eng_wheel.c"
@@ -36,6 +37,7 @@ static track_t trk[NPART];
 
 static const struct { const char *id; const engine_t *e; } ENGS[] = {
     {"analog", &ENG_ANALOG}, {"lofi", &ENG_LOFI}, {"trio", &ENG_TRIO}, {"wheel", &ENG_WHEEL}, {"noise", &ENG_NOISE},
+    {"phase", &ENG_PHASE},
 };
 
 /* ------------------------------------------------- a minimal voice host --- */
@@ -159,8 +161,8 @@ static result_t render(const engine_t *e, const preset_t *pr, uint32_t part, int
             m.amp0 = last[k];
             m.amp1 = a;
             m.envq15 = a;
-            m.cutoff = ((int32_t)(b % 96u) - 48) << 7;  /* a slow triangle-ish sweep of +-24 << 8 */
-            m.shape = (64 << 8) + (((int32_t)(b % 64u) - 32) << 8);
+            m.cutoff = ((int32_t)(b % 96u) - 48) * 128; /* a slow triangle-ish sweep of +-24 << 8 */
+            m.shape = (64 << 8) + ((int32_t)(b % 64u) - 32) * 256;
             last[k] = a;
             e->render(t, v, out, CTL, &m);
         }

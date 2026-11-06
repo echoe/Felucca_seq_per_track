@@ -143,8 +143,8 @@ static int32_t lc_l1, lc_l2, lc_r1, lc_r2, dc_l, dc_r, dce_l, dce_r;
  * to +-31 at the output after silence.) */
 static inline int32_t dc_block(int32_t x, int32_t *dc, int32_t *err)
 {
-    int32_t e = (x << 6) - *dc + *err, d = e >> 12;
-    *err = e - (d << 12);
+    int32_t e = x * 64 - *dc + *err, d = e >> 12;
+    *err = e - d * 4096;
     *dc += d;
     return x - ((*dc + 32) >> 6);
 }
@@ -153,7 +153,7 @@ static int32_t lce[4];
 static inline int32_t lowcut1(int32_t x, int32_t *lc, int32_t *err, uint32_t sh)   /* x minus its one-pole low-pass */
 {
     int32_t e = x - *lc + *err, d = e >> sh;
-    *err = e - (d << sh);
+    *err = e - d * (int32_t)(1u << sh);
     *lc += d;
     return x - *lc;
 }
@@ -218,7 +218,8 @@ static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* original IDs stay fi
 static uint32_t midi_beat_samples;                    /* zero until an external clock has a measured tempo */
 static uint32_t beat_samples(void)
 {
-    return song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
+    uint32_t bpm = song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u;   /* (BPM 0 for a moment, #282: no divide by 0) */
+    return song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / bpm;
 }
 static uint32_t div_samples(uint32_t div)
 {
@@ -864,10 +865,21 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
  * when built, nothing when retired. An estimate: it only steers the split, the sound does not depend on it */
 #if FELUCCA_CPU2
 static uint16_t part_cost[NTRK];                        /* the last block's, per part */
-static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67, 70, 174, 144, 143, 189, 309, 113, 134,
+static const uint16_t ENG_VCOST[NENGINES] = {163, FELUCCA_FM4 ? 181 : 0, 162, 67, FELUCCA_SAMPLE ? 70 : 0, 174, 144, 143, FELUCCA_GRAIN ? 189 : 0, 309, 113, 134,
                                              181,
-#if FELUCCA_SLICE
-                                             129
+                                             FELUCCA_SLICE ? 129 : 0,   /* (SAMPLE, GRAIN, SLICE: 0 when retired) */
+#if FELUCCA_SHDRUM
+                                             150,
+#endif
+#if FELUCCA_SWARM
+                                             190,   /* SWARM: 7 oscillators and a filter a voice (host ns per voice, tests/swarm_test.c: ANALOG 11.2, FM6 17.5, SWARM 20.6, FMTONE 11.8;
+                                                     * fitted to ANALOG's 163 and FM6's 181: an estimate that only steers the split) */
+#endif
+#if FELUCCA_FMTONE
+                                             165,   /* FMTONE (see SWARM's) */
+#endif
+#if FELUCCA_WAVETONE
+                                             178    /* WAVETONE (host ns per voice, tests/wavetone_test.c: ANALOG 9.9, FMTONE 11.2, WAVETONE 14.5; the same fit) */
 #endif
 };
 #endif
@@ -972,7 +984,7 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
     }
 }
 
-/* ---- the second core (hal/fm1_cpu1.h; after Jangada's, github.com/zednaked/jangada, GPL-3.0) renders some of
+/* ---- the second core (bsp/chip/fm1_cpu1.h; after Jangada's, github.com/zednaked/jangada, GPL-3.0) renders some of
  * the parts of each block into its own sums (mx[1]) while this core renders the others; then this core adds them in
  * and goes on (the LFOs' blocks, the FX layer, the buses, the master) as with one core. The sums are integers, so the
  * order they add up in changes nothing: the output is bit for bit one core's. A part's render touches its own state

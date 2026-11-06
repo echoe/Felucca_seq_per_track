@@ -374,7 +374,7 @@ static int clean_sounds(track_t *t, uint32_t note)
         }
     }
     trk_note_off(t, note);
-    for (b = 0; b < 1500u; b++)
+    for (b = 0; b < 4000u; b++)
         mix_block(o, CTL);
     for (i = 0; i < NVOICE; i++)
         act += t->v[i].active;

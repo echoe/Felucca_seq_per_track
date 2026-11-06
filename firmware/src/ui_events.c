@@ -57,6 +57,8 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
+    if (id == MOTION_PSET)                             /* a PRESET lock: the track's engine has presets */
+        return ENGINES[eng_idx(t->eng_req)]->npresets > 0;
     if (id >= P_COUNT || !motion_param(id) || id == P_ED_FX || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
@@ -69,12 +71,29 @@ static int ev_id_ok(const track_t *t, uint32_t id)
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
     const char *pre = id >= P_ATK && id <= P_ED_SHP ? "ENV " : id >= P_LRATE && id <= P_LD_AMP ? "LFO " : "";
+    if (id == MOTION_PSET) {
+        str_cpy(b, "PRESET", 12);
+        return;
+    }
     if (ev_sid(id)) {
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VEL" : "NUDGE", 12);
         return;
     }
     str_cpy(b, pre, 12);
     str_cpy(b + str_len(b), id == P_LEVEL ? "LEVEL" : id == P_GLIDE ? "GLIDE" : track_desc(t, id)->label, 12 - str_len(b));
+}
+
+/* a motion record's value as text (b holds 14): a preset lock's is the preset's name (the engine's list, past its end: wrapped as it plays),
+ * else the parameter's own format; sets the unit */
+static void ev_value_text(const track_t *t, uint32_t id, int32_t v, char *b, const char **unit)
+{
+    if (id == MOTION_PSET) {
+        const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+        str_cpy(b, e->npresets ? e->presets[(uint32_t)v % e->npresets].name : "-", 14);
+        *unit = "";
+        return;
+    }
+    param_format(track_desc(t, id), v, b, unit);
 }
 
 /* a step's CHANCE (kind EVK_CHANCE), RATCH (EVK_RATCH), NUDGE (EVK_NUDGE) or VEL (EVK_VEL): its value, its default
@@ -163,11 +182,11 @@ static int ev_id_free(const track_t *t, uint32_t step, uint32_t id)
 static int32_t ev_id_pos(uint32_t id)
 {
     return id == EV_CHANCE ? 0 : id == EV_RATCH ? 1 : id == EV_NUDGE ? 2 : id == EV_VEL ? 3
-           : id < P_COUNT ? (int32_t)id + 4 : -1;
+           : id < P_COUNT ? (int32_t)id + 4 : id == MOTION_PSET ? (int32_t)P_COUNT + 4 : -1;   /* (the preset lock after the parameters) */
 }
 static uint32_t ev_id_at(int32_t v)
 {
-    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL : (uint32_t)(v - 4);
+    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL : v == (int32_t)P_COUNT + 4 ? MOTION_PSET : (uint32_t)(v - 4);
 }
 /* the next one after id in direction dir (+1 / -1) that is free on track t's step; id itself when there is none */
 static uint32_t ev_id_step(const track_t *t, uint32_t step, uint32_t id, int32_t dir)
@@ -175,7 +194,7 @@ static uint32_t ev_id_step(const track_t *t, uint32_t step, uint32_t id, int32_t
     int32_t i = ev_id_pos(id);
     for (;;) {
         i += dir;
-        if (i < 0 || i >= (int32_t)P_COUNT + 4)
+        if (i < 0 || i >= (int32_t)P_COUNT + 5)
             return id;
         if (ev_id_ok(t, ev_id_at(i)) && ev_id_free(t, step, ev_id_at(i)))
             return ev_id_at(i);
@@ -278,8 +297,8 @@ static const char *ev_act_name(void)
         return "CLEAR";
     if (k == EVK_ADD)
         return ui.ev_id != EV_VEL ? "ADD" : ui.ev_vel ? "HIDE" : "SHOW";
-    if (k != EVK_REC)
-        return "--";
+    if (k != EVK_REC || MOTION_ID(&motion.event[c & 0xFFu]) == MOTION_PSET)
+        return "--";                                   /* (a preset is only ever a lock) */
     return (motion.event[c & 0xFFu].param & MOTION_LOCK) ? "AUTO" : "LOCK";   /* what OCT+ turns it into */
 }
 static int ev_act_ready(void)
@@ -409,7 +428,7 @@ static void ev_knob(uint32_t slot, int32_t s)
         uint32_t to = id, m = (uint32_t)(s > 0 ? s : -s), nx;
         while (m--) {                                   /* a detent each: the next free parameter (no step field) */
             nx = ev_id_step(t, step, to, s > 0 ? 1 : -1);
-            if (nx >= P_COUNT)
+            if (nx >= P_COUNT && nx != MOTION_PSET)
                 break;
             to = nx;
         }
@@ -418,6 +437,11 @@ static void ev_knob(uint32_t slot, int32_t s)
         motion_undo_take(t, 0x200u | slot | i << 4);   /* (a knob turned on, this record) */
         (void)motion_move(t, i, step, to, motion_base_value(t, to));
         ui.ev_id = (uint8_t)to;
+    } else if (id == MOTION_PSET) {                     /* the value of a preset lock: a preset of the track's engine */
+        int32_t np = (int32_t)ENGINES[eng_idx(t->eng_req)]->npresets;
+        s = accel(EN_K1 + slot, s, np);
+        motion_undo_take(t, 0x200u | slot | i << 4);   /* (a knob turned on, this record) */
+        (void)motion_move(t, i, step, id, (int16_t)clamp(e->value + s, 0, np - 1));
     } else {                                            /* the value */
         d = track_desc(t, id);
         s = accel(EN_K1 + slot, s, d->fmt == F_ENUM ? 0 : d->max - d->min);
@@ -491,6 +515,10 @@ static void ev_oct(void)
     if (k == EVK_REC) {
         const motion_event_t e = motion.event[c & 0xFFu];
         uint32_t lock = !(e.param & MOTION_LOCK);
+        if (MOTION_ID(&e) == MOTION_PSET) {
+            ui_message("PRESET IS A LOCK");
+            return;
+        }
         motion_undo_take(t, 0);
         (void)motion_put(t, e.place & 63u, MOTION_ID(&e), e.value, lock ? MOTION_LOCK : 0u);
         motion_undo_done(t);
