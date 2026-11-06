@@ -117,7 +117,7 @@ static int32_t menu_document(int32_t y, int draw)
 {
     uint32_t i;
     if (draw) {
-        cv_text(6, y + 2, &AF_L, "FELUCCA", T_THEME);
+        cv_text(6, y + 2, &AF_L, "ARGO", T_THEME);
         cv_text(6, y + 38, &AF_S, "Multi-engine synthesizer", T_TEXT);
         cv_text(6, y + 58, &AF_M, FELUCCA_VERSION, T_THEME);
         cv_text_r(232, y + 61, &AF_S, __DATE__, T_MID, T_BG);

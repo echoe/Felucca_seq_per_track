@@ -362,6 +362,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
     $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/patbank_test" tests/patbank_test.c -lm
     run "sequences: eight per track, each with its steps, LEN and 64 automation records; project slots and the live music in flash" "$OUT/patbank_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/slicer_init_test" tests/slicer_init_test.c -lm
+    run "TOOLS INIT and CLEAN INIT take the SLICER back to OFF (a preset load and the autosave keep it)" "$OUT/slicer_init_test"
     run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     $CC $SMPF -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm
     run "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" "$OUT/backup_test"

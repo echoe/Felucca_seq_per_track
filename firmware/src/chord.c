@@ -259,7 +259,7 @@ static const char *const CA_NAME[CA_N] = {"--", "MIN", "DIM", "AUG", "SUS2", "SU
     "M7B5", "MMAJ7", "9", "MAJ9", "MIN9", "+9", "+11", "+13", "INV", "BASS", "STRM", "ARP"};
 #define CPK_KEYS 11u                                    /* the black keys F#3 .. F#5 */
 #define CPK_USER 4u                                     /* chord packs of the user's */
-#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 5 ms, 0..200 (the low seven bits) */
+#define CPK_STRUM_MAX 40u                               /* cpk.strum: x 25 ms, 0..1000 (the low seven bits) */
 #define CPK_LATCH 0x80u                                 /* cpk.strum's top bit: the black keys toggle their action on and off instead of being held */
 #define CPK_SPEED(p) ((uint32_t)(p)->strum & 0x7Fu)
 typedef struct { uint8_t act[CPK_KEYS], strum; } cpack_t;
@@ -452,7 +452,7 @@ static void play_note_off(track_t *t, uint32_t x)
     midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
 }
 /* the samples between a strum's notes */
-static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 5u * 44100u / 1000u); }
+static int32_t play_strum_samples(void) { return (int32_t)(CPK_SPEED(&cpk) * 25u * 44100u / 1000u); }
 /* once an audio block (keyboard_block): the next notes of the strums and the arps held */
 static void play_tick(void)
 {

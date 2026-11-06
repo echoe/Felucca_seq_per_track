@@ -632,7 +632,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
 }
 
 /* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
- * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
+ * TOOLS INIT) leaves alone (TOOLS INIT does take the SLICER back to OFF, ui.c slicer_reset). The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
  * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
  * insert, which chops whatever the track plays in time with its sequencer */
 static int param_kept(uint32_t i)

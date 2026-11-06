@@ -1625,7 +1625,6 @@ static void graph_events(void)
             uint32_t id = MOTION_ID(e), lock = (e->param & MOTION_LOCK) != 0u;
             char b[16], nm[12];
             const char *unit;
-            const param_desc_t *d = track_desc(t, id);
             int32_t x;
             b[0] = (char)('0' + ((e->place & 63u) + 1u) / 10u);
             b[1] = (char)('0' + ((e->place & 63u) + 1u) % 10u);

@@ -1213,7 +1213,7 @@ static void act_do(void)
         confirm_open(CF_CLEAR_SEQ, song.sel);
         break;
     default:                                              /* G_INITSND */
-        set_engine(TSEL->eng_req);                        /* engine defaults + its first preset (the steps stay) */
+        init_sound();                                     /* engine defaults + its first preset, the SLICER off (the steps stay) */
         ui_message("SOUND INIT");
         ui.force = 1;
         break;
@@ -1728,7 +1728,7 @@ static void ui_input(void)
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {
-                if (!chain_busy()) { set_engine(TSEL->eng_req); ui_message("SOUND INIT"); }
+                if (!chain_busy()) { init_sound(); ui_message("SOUND INIT"); }
             } else if (kind == CF_CLEAN_SOUND) {
                 if (!chain_busy()) { clean_engine(); ui_message("CLEAN INIT"); }
             } else {

@@ -1427,11 +1427,29 @@ static void set_engine_of(track_t *t, uint32_t ei)
 static void apply_preset(uint32_t pi) { apply_preset_to(TSEL, pi); }
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
+/* TOOLS INIT and CLEAN INIT also take the SLICER (P_SLCR .. P_SLDEPTH) back to its defaults (OFF): it is a track setting a
+ * sound load (a preset, an engine jump) leaves alone (param_kept), and a last session's autosave brings it back at power-on,
+ * so INIT is the way to clear it. Not part of the load's undo copy (undo_swap swaps what param_kept does not keep) */
+static void slicer_reset(track_t *t)
+{
+    uint32_t i;
+    fm1_irq_off();
+    for (i = P_SLCR; i <= P_SLDEPTH; i++)
+        t->p[i] = TP[i].def;
+    fm1_irq_on();
+}
+/* INIT: the engine's defaults + its first preset (the steps stay), and the SLICER off */
+static void init_sound(void)
+{
+    set_engine(TSEL->eng_req);
+    slicer_reset(TSEL);
+}
+
 /* CLEAN INIT (1.5.5, #190): the engine's basic sound, nothing added: E1..E8 at the engine's own defaults (not its first
  * preset's), every other sound value at its default (TP: no FX sends DIST CHO DLY REV, INSERT OFF, no LFO or ENV DEST
  * amounts, the MOD slots off, no GLIDE, POLY), the ENV neutral (ATK 0, SUS 100 %, a short REL; DRUM: its kit's own, so
  * the hits ring as they should); FM6 the init voice (one sine carrier, ALGORITHM 1; SLOT OWN). What INIT keeps stays
- * (param_kept: LEVEL PAN MUTE, ARP, SCL, the sequence, SLICER, the chord keys); the steps stay. One undo, as INIT
+ * (param_kept: LEVEL PAN MUTE, ARP, SCL, the sequence, the chord keys; the SLICER is taken off); the steps stay. One undo, as INIT
  * (SAVE held). INIT itself is unchanged (the engine's defaults and its first preset) */
 #define CLEAN_REL 40                                   /* ~18 ms */
 static void clean_engine_of(track_t *t)
@@ -1463,6 +1481,7 @@ static void clean_engine_of(track_t *t)
         t->p[P_REL] = CLEAN_REL;
     }
     fm1_irq_on();
+    slicer_reset(t);                                  /* the SLICER off (INIT takes it back too) */
 #if FELUCCA_SHDRUM
     if (ei == ENGI_SHDRUM)                            /* SHDRUM: its layers and effects at their defaults */
         shd_defaults(t);
