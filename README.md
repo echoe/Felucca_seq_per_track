@@ -28,7 +28,11 @@ Free software: [GPL-3.0-only](LICENSE); the Hügelton Sample Pack is CC0 1.0, bu
 ([Felucca-Engines](https://github.com/hugelton/Felucca-Engines)); the hardware layer in `firmware/bsp` is MPL-2.0
 ([felucca-bsp](https://github.com/hugelton/felucca-bsp)); the bundled fonts and ported DSP keep their own licences
 ([LICENSES/](LICENSES/), [LICENSING.md](LICENSING.md)). Additional engines are as listed in the overview.
-Carried over from Felucca, thanks to everyone whose work and contributions are in Felucca are here: [CREDITS.md](CREDITS.md).
+Carried over from Felucca, thanks to everyone whose work and contributions are in Felucca as listed here: [CREDITS.md](CREDITS.md).
+This includes the engines:
+VOICE engine: after klattsch by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
+PHYS engine: models ported from DaisySP by Electrosmith and Emilie Gillet (MIT) and from Emilie Gillet's eurorack code (MIT)
+FM6 engine: msfa from Dexed by Google Inc. and Pascal Gauthier (Apache-2.0)
 
 M-VAVE and FM-1 are trademarks of their respective owners. Argo is not affiliated with or endorsed by them.
 
