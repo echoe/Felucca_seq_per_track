@@ -35,11 +35,28 @@ M-VAVE and FM-1 are trademarks of their respective owners. Argo is not affiliate
 
 # The differences between this and Felucca
 
-## No samples
+## No samples or engines that use samples are in this firmware
 
 No samples or engines with samples are used. This frees up space for the other features.
 
-## Sequences (eight per track)
+## Five different Synth engines; one unique to this branch, and four picked from other firmware
+
+The synths in common with Felucca are:
+
+- ANALOG, FM6, PHASE, LOFI, VOCAL, TRIO, WHEEL, PHYS, NOISE: default Felucca synths.
+
+Synths from other firmwares are:
+- SWARM, FM-TONE, WAVETONE: Engines from the Mini-tone firmware, modeled after the Digitone II's synth engines.
+- DRUM-X: A drum engine from the Jiant firmware, modeled after Microtonic.
+
+The unique synth to this firmware is:
+- SH-TONE: A drum engine unique to this firmware, modeled after the SH-4d's drum engine. There is both a drum engine around this with several presets, and a synth engine where you can change every setting. The architecture is:
+  - Two oscillators that can be one of five waves. Individual envelope and pitches.
+  - One setting to either MIX, FM, or RING the oscillators.
+  - An ending envelope.
+  - Some simple effects - crush, fold, etc.
+
+## Added sequences (eight per track)
 
 Each track plays one of eight sequences. A sequence has its own steps, its own LEN and its own automation and parameter
 locks (up to 64 records while it is not the one playing); DIV, SWING, GATE, QUANTIZE and the sound stay the track's.
@@ -62,7 +79,7 @@ locks (up to 64 records while it is not the one playing); DIV, SWING, GATE, QUAN
   keeps the music's. They live in the flash the user sample slots had, which builds with `FELUCCA_PATBANK=1` (the default) do not
   have. A song plays each project's sequence as it was saved.
 
-## Generative Arpeggiator
+## Generative mode within the arpeggiator
 
 The arp's MODE has a last value, **GEN**: the track plays by itself while the music plays (PLAY starts it on its first step,
 STOP silences it), notes of its scale, and the keys play as they do with the arp OFF. **ARP > GEN** (the third ARP page) has
@@ -128,3 +145,11 @@ There is a GRAIN option in the slicer to get granular sounds even without a spec
 ## Preset changing per step
 
 Within a synth type, you can set a different preset per step. To do this go to SEQ, then the AUTO page (3/4), then add a row. The last PARAM you can change is a PRESET param that lets you select different presets. This is an optional setting that is processed as though there is a settings change for the step, which is why you cannot change synth engines. This means that you can 'double up' on tracks if you want and do a bunch of weird tricks.
+
+## Todo
+
+- Change the granular slicer setting to be an INSERT effect.
+- Make preset changing per step smoother. I may change this to have a 'DETAIL 2' page.
+- Let preset changing per step work for switching to saved presets if it's the same synth engine.
+- Open up additional synth preset slots.
+- Remove the preset patterns in the SAVE menu.
