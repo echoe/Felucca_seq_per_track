@@ -121,5 +121,10 @@ are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was cha
 do now into the user pack picked. The packs and the keys' setting are saved with the music (project SAVE, RESTORE LAST), in the
 sequence banks' flash.
 
+## Granular SLICER settings
+
+There is a GRAIN option in the slicer to get granular sounds even without a specific granular mode.
+
 ## Preset changing per step
+
 Within a synth type, you can set a different preset per step. To do this go to SEQ, then the AUTO page (3/4), then add a row. The last PARAM you can change is a PRESET param that lets you select different presets. This is an optional setting that is processed as though there is a settings change for the step, which is why you cannot change synth engines. This means that you can 'double up' on tracks if you want and do a bunch of weird tricks.
