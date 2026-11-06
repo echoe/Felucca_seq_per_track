@@ -147,8 +147,17 @@ Within a synth type, you can set a different preset per step. To do this go to S
 
 ## Todo
 
-- Change the granular slicer setting to be an INSERT effect.
-- Make preset changing per step smoother. I may change this to have a 'DETAIL 2' page.
-- Let preset changing per step work for switching to saved presets if it's the same synth engine.
-- Open up additional synth preset slots.
-- Remove the preset patterns in the SAVE menu.
+-remove the 'PHRASES' page in SAVE, and all phrases. They are not used.
+-rename the 'TOOLS' page to 'CLEAR'
+-replace the references to Hugelton Intruments and hugelton.github.io/Felucca with my github username, echoe, and my github project URL, echoe.github.io/argo-fm1
+
+-add an option to set the pattern for the stutter effect, setting a level for each step
+-add a TAPE insert effect
+-add a second INSERT effect option per track
+
+-remove the presets that were made between presets
+-add more user presets. it's OK to move the order of parts of the firmware memory around to make this work.
+-add a second DETAIL page in the SEQ visualization with PRESET settings per step and effect 1 and 2 selections
+-add a 'SYNC' option to the SH-DRUM synth engine as an XMOD option.
+
+-let the user swap between any preset with preset swap. Preset swap is currently limited to only built-in presets, which greatly limits the sound palette.
