@@ -151,15 +151,17 @@ Within a synth type, you can set a different preset per step. To do this go to S
 
 ## Todo
 
--remove the 'PHRASES' page in SAVE, and all phrases. They are not used.
--rename the 'TOOLS' page to 'CLEAR'
+most important:
 
+-add a second DETAIL page in the SEQ visualization with PRESET settings per step and ... i dunno. effect settings? let the ai decide i guess
+-add a 'SYNC' option to the SH-DRUM synth engine as an XMOD option
+-let the user swap between any preset with preset swap. Preset swap is currently limited to only built-in presets, which greatly limits the sound palette.
+
+nice to haves:
+
+-remove the 'PHRASES' page in SAVE, and all phrases. i don't like them
 -add an option to set the pattern for the stutter effect, setting a level for each step
 -add a second INSERT effect option per track
 
--remove the presets that were made between presets
--add more user presets. it's OK to move the order of parts of the firmware memory around to make this work.
--add a second DETAIL page in the SEQ visualization with PRESET settings per step and effect 1 and 2 selections
--add a 'SYNC' option to the SH-DRUM synth engine as an XMOD option.
-
--let the user swap between any preset with preset swap. Preset swap is currently limited to only built-in presets, which greatly limits the sound palette.
+-remove the presets that were made 'between' presets, and add more user presets. [it's OK to move the order of parts of the firmware memory around to make this work.]
+-let the user import and export patches from all of the engines with the editor
