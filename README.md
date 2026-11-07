@@ -141,7 +141,7 @@ are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was cha
 do now into the user pack picked. The packs and the keys' setting are saved with the music (project SAVE, RESTORE LAST), in the
 sequence banks' flash.
 
-## Additoinal INSERT effects
+## Additional INSERT effects
 
 There is a GRAIN effect and a TAPE effect.
 
