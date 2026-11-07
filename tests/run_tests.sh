@@ -399,9 +399,13 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
     mkdir -p build/slicer_demo
     run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
-    # the SLICER insert's GRAIN mode (tests/grain_test.c): a tempo-synced granular insert on the same step clock and buffer
+    # the INSERT's GRAIN type (tests/grain_test.c, Argo 1.7.0; it was the SLICER's GRAIN mode): a free-running granular insert on the
+    # slicer's buffer
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/grain_test" tests/grain_test.c -lm
-    run "SLICER GRAIN: transparent at DEPTH 0 and OFF, no clicks or overflow (rates, patterns, tempi, turned live), grains, repeatable, the tail, sl_lent, side signal, long run" "$OUT/grain_test"
+    run "INSERT GRAIN: transparent at MIX 0 and OFF, no clicks or overflow (every SIZE PITCH SPRAY, turned live), grains, PITCH exact, repeatable, the tail, STUT and sl_lent, a stored SLICER GRAIN loads OFF, long run" "$OUT/grain_test"
+    # the INSERT's TAPE type (tests/tape_test.c): saturation, wow and flutter, tone
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/tape_test" tests/tape_test.c -lm
+    run "INSERT TAPE: transparent at MIX 0 and OFF, bounded and click free, DRIVE saturates at a steady level, WOW moves the pitch (measured), TONE, repeatable, the tail, the slicer's buffer untouched, long run" "$OUT/tape_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/swing_test" tests/swing_test.c -lm
     run "SWING: track + global at most 100, sequencer and SLICER step lengths, the SWG display" "$OUT/swing_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/perform_test" tests/perform_test.c -lm

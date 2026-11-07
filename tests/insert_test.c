@@ -236,13 +236,17 @@ static void test_types(void)
                             }
                         }
                         sy = fabs((sy - sx) / FS);
-                        if (ty != IT_CRUSH || ia || ib)         /* (1 bit at 689 Hz: 689 coarse errors a second do */
-                            dc[s] = sy > dc[s] ? sy : dc[s];    /* not average out in 1 s; the odd check below) */
+                        if ((ty != IT_CRUSH || ia || ib) && ty != IT_GRAIN)   /* (1 bit at 689 Hz: 689 coarse errors a second do */
+                            dc[s] = sy > dc[s] ? sy : dc[s];                  /* not average out in 1 s; the odd check below. GRAIN: */
+                                                                              /* 5 ms grains of low saws leak low frequencies, a */
+                                                                              /* cloud's mean wanders: grain_test.c has its DC) */
                         if (ia == 1 && ic != 1) {           /* MIX 50 % halfway, MIX 0 the input */
-                            run_ins((int32_t)ty, COR[ia], COR[ib], COR[ic], 64, sig_b);
-                            for (i = SL_RAMP; i < NS; i++) {
-                                int32_t want = sig_in[i] + mulq16(sig_a[i] - sig_in[i], 64u * 258u * 2u);
-                                lin &= abs(sig_b[i] - want) <= 1;
+                            if (ty != IT_GRAIN) {           /* (GRAIN's grains replace the dry sound by their windows: tests/grain_test.c) */
+                                run_ins((int32_t)ty, COR[ia], COR[ib], COR[ic], 64, sig_b);
+                                for (i = SL_RAMP; i < NS; i++) {
+                                    int32_t want = sig_in[i] + mulq16(sig_a[i] - sig_in[i], 64u * 258u * 2u);
+                                    lin &= abs(sig_b[i] - want) <= 1;
+                                }
                             }
                             run_ins((int32_t)ty, COR[ia], COR[ib], COR[ic], 0, sig_b);
                             same0 &= !memcmp(sig_b, sig_in, sizeof sig_in) && !ins[0].w;
@@ -513,7 +517,7 @@ static int demos(const char *dir)
     static const uint8_t LINE[16] = {36, 36, 48, 36, 0, 39, 36, 46, 36, 0, 48, 43, 36, 39, 0, 41};
     static const uint8_t SET[IT_N][4] = {{0}, {100, 90, 96, 127}, {90, 100, 92, 127}, {70, 110, 100, 127},
                                          {110, 80, 106, 127}, {40, 72, 90, 127}, {50, 127, 100, 127},
-                                         {40, 127, 110, 127}, {60, 110, 30, 127}};
+                                         {40, 127, 110, 127}, {60, 110, 30, 127}, {64, 64, 48, 127}, {40, 40, 100, 127}};
     uint32_t ty, i, n = 0, bars = 4u, frames = bars * 4u * FS / 2u / CTL * CTL;   /* 120 BPM: a bar 2 s */
     for (ty = 1; ty < IT_N; ty++) {
         char name[32];

@@ -1,24 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICER: a per-track insert, a tempo-synced 16-step gate / stutter. It works on the track's dry
- * mono signal after DIST and before LEVEL / PAN / the sends (fx.c mix_part), so the sends follow
+ * mono signal after DIST and the INSERT, and before LEVEL / PAN / the sends (fx.c mix_part), so the sends follow
  * the chopped sound.
- *   P_SLCR    OFF / GATE / STUT / GRAIN
- *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open / a grain starts, '.' gated / repeated / none)
+ *   P_SLCR    OFF / GATE / STUT   (a third mode, GRAIN, is the INSERT's now: fx.c IT_GRAIN)
+ *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
- *   P_SLDEPTH GATE: how far a '.' step closes (100 % = silent); STUT: the level of the repeat; GRAIN: the grains' level
- * GRAIN (added for this tree): the track is recorded all the time (the same 22.05 kHz buffer, a ring) and every 'x' step starts a grain:
- *   a Hann-windowed piece of the recent past, twice the step long, swing aside (neighbours overlap by half), read at a pitch of 0 / +5 / +7 / -5 /
- *   -12 semitones and from a place in the last 186 ms that both come from the step's number (hashed: the same every pass of the
- *   transport, another from step to step). Two grains at most (the older ends first). The grains replace the dry sound as far as
- *   they are heard (a window's weight), so between them the track plays on; DEPTH is how far. With perform.c holding the buffer
- *   the track plays dry.
+ *   P_SLDEPTH GATE: how far a '.' step closes (100 % = silent); STUT: the level of the repeat
  * GATE: the gain moves at most 1 / SL_RAMP per sample (2.9 ms from open to closed): a closing
  *   ramp ends on the step boundary, an opening one starts on it.
  * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN samples a track); a '.'
  *   step plays that recording from its start, looped at the step length (halved until it fits the
  *   recording), cross-faded with the live sound by DEPTH. Every pass of the loop is windowed
  *   (SL_RAMP at both ends and at the step end), the cross-fade moves as the gate does.
+ * The recording (sl_buf) is the track's one buffer: the INSERT's GRAIN (fx.c) uses it as its ring while it runs on the
+ * track (ins_gr[]): STUT then plays live and records nothing (GATE does not use the buffer), and perform.c borrows it
+ * for the whole FX layer (sl_lent) as it did.
  * The step clock: per track, always running (also with the SLICER OFF, so switching it on lands
  * in time), restarted with the transport (seq_start -> slicer_start: step 0 starts with the
  * sequencer's step 0), BPM and the track's + the global SWING as the sequencer has them (seq.c
@@ -28,7 +25,7 @@
 #define SL_RAMP_LOG2 7
 #define SL_RAMP (1 << SL_RAMP_LOG2)     /* 128 samples, 2.9 ms */
 #define SL_SLOPE (32768 / SL_RAMP)
-enum { SL_OFF, SL_GATE, SL_STUT, SL_GRAIN };   /* P_SLCR (params.c N_SLCR) */
+enum { SL_OFF, SL_GATE, SL_STUT };   /* P_SLCR (params.c N_SLCR) */
 
 /* bit k = step k: 1 = 'x' (open / live), 0 = '.' (closed / repeat) */
 static const uint16_t SL_PAT[SL_NPAT] = {
@@ -63,16 +60,9 @@ typedef struct {
     uint8_t idx;                 /* step 0..15 */
     uint8_t bit;                 /* this step's pattern bit (latched at its start) */
     uint8_t rec_on;              /* recording this step */
-    uint16_t gw;                 /* GRAIN: the ring's write position */
-    uint32_t gn;                 /* GRAIN: the step count since the transport started */
-    struct {                     /* GRAIN: two grains */
-        uint32_t pos, len;       /* samples into the grain, its length (44.1 kHz) */
-        uint32_t rp, inc;        /* the read position in the ring, Q16 (22.05 kHz samples); its step */
-        uint32_t ph, dph;        /* the window's phase (0 .. half a cycle of sine_i) and its step */
-        uint8_t on;
-    } g[2];
 } sl_t;
 static sl_t sl[NTRK];
+static uint8_t ins_gr[NTRK];     /* the INSERT is GRAIN and running on this track: it has sl_buf (fx.c track_insert) */
 static uint8_t sl_lent;          /* perform.c has borrowed sl_buf: STUT plays live, records nothing */
 
 static void slicer_start(void)   /* seq_start: the next block starts step 0 of every track */
@@ -81,47 +71,17 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
     for (k = 0; k < NTRK; k++) {
         sl[k].idx = 15;
         sl[k].pos = sl[k].len = 0;
-        sl[k].gn = 0;
-        sl[k].g[0].on = sl[k].g[1].on = 0;
     }
 }
 
 static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_SLPAT] - 1) % SL_NPAT]; }
-
-/* GRAIN: the pitch ratios (Q8, the buffer's own rate 256) of the grains: 0, 0, +7, -12, -5, +5 semitones; none above 1.5 (a grain never
- * reads past the write position: spawn) */
-static const uint16_t SLG_RATIO[6] = {256, 256, 384, 128, 192, 341};
-
-/* the step starts a grain: it takes a free voice, else the older one's */
-static void slg_spawn(const track_t *t, sl_t *s)
-{
-    uint32_t h = (s->gn + 1u) * 2654435761u ^ ((uint32_t)t->p[P_SLPAT] * 40503u + 12345u), r = SLG_RATIO[(h >> 8) % 6u], lout = 2u * s->base, lb, back, v;   /* (the step without swing: a grain ends as the one after its neighbour starts) */
-    h ^= h >> 15;
-    h *= 2246822519u;
-    h ^= h >> 13;
-    if (lout > 4096u)
-        lout = 4096u;
-    lb = lout * r >> 9;                                 /* the buffer samples it reads (at half the output rate, times the ratio) */
-    {                                                   /* its start, this far behind the write position. The gap moves by (what the ring gains - what the grain reads) over the grain:
-                                                         * it shrinks for a ratio above 1 (so 96 samples more than the grain reads), it grows for one below (so it must stay under
-                                                         * the ring's length by that much): the whole grain is in the past and none of it has been overwritten */
-        uint32_t grow = lout / 2u > lb ? lout / 2u - lb : 0u, lo = lb + 96u, hi = SL_LEN - grow - 64u;
-        back = lo + h % (hi - lo);
-    }
-    v = !s->g[0].on ? 0u : !s->g[1].on ? 1u : s->g[0].pos >= s->g[1].pos ? 0u : 1u;
-    s->g[v].pos = 0;
-    s->g[v].len = lout;
-    s->g[v].rp = ((uint32_t)(s->gw - back) & (SL_LEN - 1u)) << 16;
-    s->g[v].inc = r << 7;
-    s->g[v].ph = 0;
-    s->g[v].dph = 0x80000000u / lout;
-    s->g[v].on = 1;
-}
+/* the mode: a value past STUT (a retired GRAIN, params.c param_fit turns it into OFF) is OFF */
+static inline uint32_t sl_mode(const track_t *t) { return (uint32_t)t->p[P_SLCR] > SL_STUT ? (uint32_t)SL_OFF : (uint32_t)t->p[P_SLCR]; }
 
 /* the step clock enters the next step */
 static void sl_enter(const track_t *t, sl_t *s)
 {
-    uint32_t mode = (uint32_t)t->p[P_SLCR];
+    uint32_t mode = sl_mode(t);
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
     s->len = swing_step_len(t, s->base, s->idx);   /* core.h, as seq.c step_samples */
@@ -130,10 +90,7 @@ static void sl_enter(const track_t *t, sl_t *s)
     s->rp = 0;
     s->loop = 0;
     s->rec_on = 0;
-    if (mode == SL_GRAIN && s->bit && !sl_lent)
-        slg_spawn(t, s);
-    s->gn++;
-    if (mode != SL_STUT || sl_lent) {
+    if (mode != SL_STUT || sl_lent || ins_gr[(uint32_t)(t - trk)]) {
         s->rec = 0;                                 /* nothing old to repeat when STUT comes on */
     } else if (s->bit) {
         s->rec = 0;                                 /* a live step: record it */
@@ -146,65 +103,17 @@ static void sl_enter(const track_t *t, sl_t *s)
     }
 }
 
-/* GRAIN: m samples of one step: record, play the grains, mix. sd: SPREAD's side signal (the grains are mono: it keeps as much as they
- * leave of the dry sound) */
-static __attribute__((noinline)) void slg_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, int32_t *sd, uint32_t m)
-{
-    int32_t tw = t->p[P_SLCR] == SL_GRAIN ? t->p[P_SLDEPTH] * 258 : s->w;   /* Q15, 0..32766 (the mode turned off: the grains play out) */
-    uint32_t j, k;
-    for (j = 0; j < m; j++) {
-        int32_t x = b[j], g = 0, ge = 0, y, wet;
-        s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);  /* DEPTH moves as the GATE's and STUT's do: no click from a turn */
-        wet = s->w;
-        if (!sl_lent && t->p[P_SLCR] == SL_GRAIN) {                                 /* the ring: 2:1, the pair's mean; Q15 >> 2 (as STUT's) */
-            if ((s->pos + j) & 1u) {
-                buf[s->gw] = (int16_t)clamp((s->half + x) >> 3, -32768, 32767);
-                s->gw = (uint16_t)((s->gw + 1u) & (SL_LEN - 1u));
-            } else {
-                s->half = x;
-            }
-        }
-        for (k = 0; k < 2u; k++) {
-            int32_t r, w, sn;
-            uint32_t i0;
-            if (!s->g[k].on)
-                continue;
-            i0 = s->g[k].rp >> 16;
-            r = buf[i0 & (SL_LEN - 1u)];
-            r += ((buf[(i0 + 1u) & (SL_LEN - 1u)] - r) * (int32_t)((s->g[k].rp >> 1) & 0x7FFFu)) >> 15;
-            sn = sine_i(s->g[k].ph);                    /* a Hann window: sin^2 over the grain */
-            w = (sn * sn) >> 15;
-            g += (r * 4 * w) >> 15;
-            ge += w;
-            s->g[k].rp += s->g[k].inc;
-            if ((s->g[k].rp >> 16) >= SL_LEN)
-                s->g[k].rp -= (uint32_t)SL_LEN << 16;
-            s->g[k].ph += s->g[k].dph;
-            if (++s->g[k].pos >= s->g[k].len)
-                s->g[k].on = 0;
-        }
-        if (ge > 32767)
-            ge = 32767;
-        ge = (int32_t)(((int64_t)ge * wet) >> 15);       /* how far the grains replace the dry sound */
-        y = x - mulq16(x, (uint32_t)ge << 1) + mulq16(g, (uint32_t)wet << 1);
-        if (sd)
-            sd[j] -= mulq16(sd[j], (uint32_t)ge << 1);
-        b[j] = y;
-    }
-    if (t->p[P_SLCR] != SL_GRAIN && !s->g[0].on && !s->g[1].on)
-        s->w = 0;                                       /* the tail is over: the dry sound alone (the other modes use w) */
-}
-
 /* m samples of one step (no boundary inside). sd: SPREAD's side signal (fx.c mix_spread) or 0: it gets the gate and
  * the live sound's share of the cross-fade (the repeat is the mono recording: on PAN). Inlined into both callers:
  * slicer_track's (sd 0) is the code it always was */
 static inline __attribute__((always_inline)) void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b,
                                                           int32_t *sd, uint32_t m)
 {
-    uint32_t mode = (uint32_t)t->p[P_SLCR], j, nbit = (sl_pattern(t) >> ((s->idx + 1u) & 15u)) & 1u;
-    if (mode == SL_GRAIN || s->g[0].on || s->g[1].on) {   /* (GRAIN, or the grains of it that are still sounding) */
-        slg_seg(t, s, buf, b, sd, m);
-        return;
+    uint32_t mode = sl_mode(t), j, nbit = (sl_pattern(t) >> ((s->idx + 1u) & 15u)) & 1u;
+    if (ins_gr[(uint32_t)(t - trk)]) {              /* the INSERT's GRAIN has the buffer: no recording, no repeat */
+        s->rec_on = 0;
+        s->loop = 0;
+        s->rec = 0;
     }
     int32_t depth = t->p[P_SLDEPTH] * 258;          /* Q15, 0..32766 */
     int32_t tc = mode == SL_GATE && !s->bit ? depth : 0;           /* gate closure of this step */
@@ -262,7 +171,7 @@ static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk), i = 0;
     sl_t *s = &sl[k];
-    int act = b && (t->p[P_SLCR] != SL_OFF || s->gc || s->w || s->g[0].on || s->g[1].on);
+    int act = b && (sl_mode(t) != SL_OFF || s->gc || s->w);
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
@@ -282,7 +191,7 @@ static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t 
 {
     uint32_t k = (uint32_t)(t - trk), i = 0;
     sl_t *s = &sl[k];
-    int act = t->p[P_SLCR] != SL_OFF || s->gc || s->w || s->g[0].on || s->g[1].on;
+    int act = sl_mode(t) != SL_OFF || s->gc || s->w;
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
@@ -301,5 +210,5 @@ static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t 
 static int slicer_busy(const track_t *t)
 {
     const sl_t *s = &sl[t - trk];
-    return s->w || (t->p[P_SLCR] == SL_STUT && s->loop) || s->g[0].on || s->g[1].on;
+    return s->w || (sl_mode(t) == SL_STUT && s->loop);
 }

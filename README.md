@@ -141,9 +141,9 @@ are yours (USER1..4): turning KNOB 1 loads a pack at once (a "*" says it was cha
 do now into the user pack picked. The packs and the keys' setting are saved with the music (project SAVE, RESTORE LAST), in the
 sequence banks' flash.
 
-## Granular SLICER settings
+## Additoinal INSERT effects
 
-There is a GRAIN option in the slicer to get granular sounds even without a specific granular mode.
+There is a GRAIN effect and a TAPE effect.
 
 ## Preset changing per step
 
@@ -153,10 +153,8 @@ Within a synth type, you can set a different preset per step. To do this go to S
 
 -remove the 'PHRASES' page in SAVE, and all phrases. They are not used.
 -rename the 'TOOLS' page to 'CLEAR'
--replace the references to Hugelton Intruments and hugelton.github.io/Felucca with my github username, echoe, and my github project URL, echoe.github.io/argo-fm1
 
 -add an option to set the pattern for the stutter effect, setting a level for each step
--add a TAPE insert effect
 -add a second INSERT effect option per track
 
 -remove the presets that were made between presets

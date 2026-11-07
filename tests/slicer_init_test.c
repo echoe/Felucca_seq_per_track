@@ -130,15 +130,15 @@ int main(void)
     ok = trk[0].p[P_SLCR] == 0 && trk[0].p[P_SLDEPTH] == TP[P_SLDEPTH].def;
     bad += check("power-on: the slicer is OFF on track 1", ok);
 
-    trk[0].p[P_SLCR] = 3; trk[0].p[P_SLRATE] = 4; trk[0].p[P_SLPAT] = 7; trk[0].p[P_SLDEPTH] = 40;   /* GRAIN */
+    trk[0].p[P_SLCR] = SL_STUT; trk[0].p[P_SLRATE] = 4; trk[0].p[P_SLPAT] = 7; trk[0].p[P_SLDEPTH] = 40;
     apply_preset_to(&trk[0], 2);
-    ok = trk[0].p[P_SLCR] == 3 && trk[0].p[P_SLRATE] == 4;
-    bad += check("a preset load leaves the slicer (GRAIN) as it was", ok);
+    ok = trk[0].p[P_SLCR] == SL_STUT && trk[0].p[P_SLRATE] == 4;
+    bad += check("a preset load leaves the slicer (STUT) as it was", ok);
 
     as_run(80000u);                                       /* the autosave writes (idle, stopped) */
     power_cycle();
-    ok = trk[0].p[P_SLCR] == 3;
-    bad += check("the autosave restores GRAIN at power-on (the reported symptom)", ok);
+    ok = trk[0].p[P_SLCR] == SL_STUT;
+    bad += check("the autosave restores the slicer mode at power-on (the reported symptom)", ok);
 
     init_sound();
     ok = trk[0].p[P_SLCR] == 0 && trk[0].p[P_SLPAT] == TP[P_SLPAT].def && trk[0].p[P_SLRATE] == TP[P_SLRATE].def &&
@@ -156,7 +156,7 @@ int main(void)
     ok &= trk[1].p[P_LEVEL] == 90 && trk[1].p[P_AMODE] == 2 && trk[1].p[P_ROOT] == 5;   /* mix, ARP, SCL stay */
     bad += check("INIT resets the selected track's slicer only; LEVEL, ARP, SCL stay", ok);
 
-    trk[1].p[P_SLCR] = 3; trk[1].p[P_SLDEPTH] = 10;
+    trk[1].p[P_SLCR] = SL_STUT; trk[1].p[P_SLDEPTH] = 10;
     clean_engine_of(&trk[1]);
     ok = trk[1].p[P_SLCR] == 0 && trk[1].p[P_SLDEPTH] == TP[P_SLDEPTH].def && trk[1].p[P_LEVEL] == 90 && trk[1].p[P_AMODE] == 2;
     bad += check("CLEAN INIT: the slicer OFF too; LEVEL and ARP stay", ok);

@@ -55,15 +55,20 @@ static const char *const N_NOTE[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", 
 static const char *const N_DASH[] = {"--"};
 static const char *const N_RTYPE[] = {"ROOM", "SPRING", "HALL"};   /* G_RTYPE: the reverb bus's model (fx.c) */
 static const char *const N_GO[] = {"--", "GO"};
-static const char *const N_SLCR[] = {"OFF", "GATE", "STUT", "GRAIN"};      /* SL_OFF .. SL_GRAIN (slicer.c) */
+static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};      /* SL_OFF .. SL_STUT (slicer.c; a stored 3, the retired GRAIN, loads as OFF: param_fit) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 /* the INSERT's types (1.5, fx.c IT_*; append-only: stored). Its three values A B C mean what the type says (ins_desc) */
-static const char *const N_ITYPE[] = {"OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"};
+static const char *const N_ITYPE[] = {"OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR", "GRAIN", "TAPE"};
 /* CRUSH: BITS 1..16 and RATE (the held sample's rate, fx.c INS_HOLD) over the range in 16 even parts (0-terminated) */
 static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
                                       "16", 0};
 static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k",
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
+/* GRAIN: SIZE in ms (16 even parts, fx.c IG_SIZE) and PITCH in semitones (25 even parts, IG_RATIO; 64 is 0) */
+static const char *const N_ISIZE[] = {"5", "6", "7", "9", "11", "13", "16", "20", "24", "29", "35", "43", "52", "63", "76",
+                                      "93", 0};
+static const char *const N_IPITCH[] = {"-12", "-11", "-10", "-9", "-8", "-7", "-6", "-5", "-4", "-3", "-2", "-1", "0", "+1",
+                                       "+2", "+3", "+4", "+5", "+6", "+7", "+8", "+9", "+10", "+11", "+12", 0};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8; VEL and TIME
  * (1.5.6, #213: at the note) after DEPTH */
@@ -178,19 +183,21 @@ static const param_desc_t TP[P_COUNT] = {
 };
 
 /* the INSERT's A B C as its TYPE means them (TP's ranges and defaults): the drives DRIVE TONE LEVEL, CRUSH BITS RATE
- * LPF, the swept ones RATE DEPTH FDBK; OFF TP's own */
+ * LPF, the swept ones RATE DEPTH FDBK, GRAIN SIZE PITCH SPRAY, TAPE DRIVE WOW TONE; OFF TP's own */
 #define PU(l, f, df, n, u) {l, f, 0, 127, df, n, u}
-static const param_desc_t INS_DESC[3][3] = {
+static const param_desc_t INS_DESC[5][3] = {
     {PU("DRIVE", F_PCT, 64, 0, 0), PU("TONE", F_CUTOFF, 96, 0, 0), PU("LEVEL", F_DB, 96, 0, 0)},
     {PU("BITS", F_INT, 64, N_IBITS, 0), PU("RATE", F_INT, 96, N_IRATE, "Hz"), PU("LPF", F_CUTOFF, 96, 0, 0)},
     {PU("RATE", F_LFOHZ, 64, 0, 0), PU("DEPTH", F_PCT, 96, 0, 0), PU("FDBK", F_PCT, 96, 0, 0)},
+    {PU("SIZE", F_INT, 64, N_ISIZE, "ms"), PU("PITCH", F_INT, 64, N_IPITCH, "st"), PU("SPRAY", F_PCT, 48, 0, 0)},
+    {PU("DRIVE", F_PCT, 40, 0, 0), PU("WOW", F_PCT, 40, 0, 0), PU("TONE", F_CUTOFF, 100, 0, 0)},
 };
 #undef PU
 static const param_desc_t *ins_desc(int32_t type, uint32_t k)
 {
     if (type <= 0 || type >= (int32_t)NELEM(N_ITYPE))
         return &TP[P_IA + k];
-    return &INS_DESC[type < 5 ? 0 : type == 5 ? 1 : 2][k];   /* (IT_SOFT .. IT_FUZZ, IT_CRUSH, the swept ones) */
+    return &INS_DESC[type < 5 ? 0 : type == 5 ? 1 : type == 9 ? 3 : type == 10 ? 4 : 2][k];   /* (IT_SOFT .. IT_FUZZ, IT_CRUSH, the swept ones, IT_GRAIN, IT_TAPE) */
 }
 
 static const param_desc_t GP[G_COUNT] = {
@@ -325,6 +332,8 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
  * bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN, and the patch comes with what is loaded */
 static int32_t param_fit(const param_desc_t *d, int32_t v)
 {
+    if (d->names == N_SLCR && v > d->max)               /* the SLICER's GRAIN (3) became the INSERT's: here OFF, not STUT */
+        return 0;
     v = clamp(v, d->min, d->max);
     if (d->names == N_FM6_PATCH)
         return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;

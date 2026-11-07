@@ -454,26 +454,52 @@ static void graph_fx(const track_t *t, uint16_t c)
  * scale) across, output up, dry and wet blended by MIX (fx.c ins_shape: the same shape; the dry diagonal RAISE); the
  * swept ones as two cycles of their sweep, as deep as DEPTH (FLANG the squared triangle, CHOR a sine, PHASR a
  * triangle). OFF: the dry diagonal, dim */
+/* GRAIN: its windows, Hann bumps as long as SIZE and a half apart (two sound at a time), each as high as MIX; SPRAY takes up to
+ * half of a bump's height at random, as it scatters where a grain starts */
+static void graph_grain(const track_t *t, uint16_t c)
+{
+    int32_t cy = graph_ht / 2, a = 38 * graph_ht / 100, base = cy + a, k;
+    int32_t wl = 16 + (clamp(t->p[P_IA], 0, 127) >> 3) * 12, m = ins_mixq(t->p[P_IMIX]), spray = clamp(t->p[P_IC], 0, 127);
+    cv_rect(PANEL_X0, base, PANEL_W, 1, T_RAISE);
+    for (k = -1; k * (wl / 2) < PANEL_W; k++) {
+        uint32_t h = ((uint32_t)k + 7u) * 2654435761u;
+        int32_t x0 = k * (wl / 2), amp, x, py = base;
+        h ^= h >> 15;
+        amp = (2 * a * (128 - (int32_t)(h % 128u) * spray / 254) / 128) * m / 32768;
+        for (x = x0 < 0 ? 0 : x0; x < x0 + wl && x < PANEL_W; x++) {
+            int32_t sn = sine_i((uint32_t)(x - x0) * (0x80000000u / (uint32_t)wl)), y = base - amp * ((sn * sn) >> 15) / 32768;
+            if (x > x0)
+                cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
+            py = y;
+        }
+    }
+}
 static void graph_insert(const track_t *t, uint16_t c)
 {
+    if (clamp(t->p[P_ITYPE], 0, IT_N - 1) == IT_GRAIN) {
+        graph_grain(t, c);
+        return;
+    }
     int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, ty = clamp(t->p[P_ITYPE], 0, IT_N - 1);
     int32_t m = ins_mixq(t->p[P_IMIX]), g = 4096 + t->p[P_IA] * t->p[P_IA] * 3, lvl = LEVEL_Q12[t->p[P_IC] & 127];
     uint32_t sh = ins_bits_sh(t->p[P_IA]);
+    int32_t sweep = ty >= IT_PHASER && ty != IT_TAPE;       /* (TAPE draws its saturation curve) */
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
     cv_line(PANEL_X0 + PANEL_W / 2, cy - a, PANEL_X0 + PANEL_W / 2, cy + a, T_RAISE);
-    if (ty == IT_OFF || ty >= IT_PHASER || !m)
+    if (ty == IT_OFF || sweep || !m)
         cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, ty ? T_RAISE : T_DIM);
     if (ty == IT_OFF)
         return;
     for (x = 0; x < PANEL_W; x++) {
         int32_t y, w;
-        if (ty >= IT_PHASER) {                       /* the sweep, two cycles */
+        if (sweep) {                                 /* the sweep, two cycles */
             uint32_t ph = (uint32_t)x * (0xFFFFFFFFu / (PANEL_W / 2u)), tr = pf_tri(ph);
             w = ty == IT_CHORUS ? osc_sine(ph) * 2 : ty == IT_FLANGER ? (int32_t)((tr * tr) >> 16) * 2 - 65536 : (int32_t)tr * 2 - 65536;
             y = cy - (w >> 1) * a / 32768 * t->p[P_IB] / 127;
         } else {                                     /* the curve: v in, dry v, wet shaped */
             int32_t v = (x - PANEL_W / 2) * 49152 / (PANEL_W / 2), o;
-            o = ty == IT_CRUSH ? ins_shape(IT_CRUSH, v, sh) : (ins_shape((uint32_t)ty, ((v >> 3) * g) >> 9, 0) * lvl) >> 12;
+            o = ty == IT_TAPE ? ins_tape_shape(v, t->p[P_IA])
+                : ty == IT_CRUSH ? ins_shape(IT_CRUSH, v, sh) : (ins_shape((uint32_t)ty, ((v >> 3) * g) >> 9, 0) * lvl) >> 12;
             w = v + mulq16(o - v, (uint32_t)m << 1);
             y = cy - clamp(w, -49152, 49152) * a / 49152;
         }
@@ -486,8 +512,8 @@ static void graph_insert(const track_t *t, uint16_t c)
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
 static void graph_slicer(const track_t *t, uint16_t c)
 {
-    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur = sl[t - trk].idx;
-    int32_t open = mode == SL_GRAIN ? 0 : 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps (a GRAIN rest: none) */
+    uint32_t i, pat = sl_pattern(t), mode = sl_mode(t), cur = sl[t - trk].idx;
+    int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
     uint16_t col = mode == SL_OFF ? T_DIM : c;
     for (i = 0; i < 16u; i++) {
         int32_t x = bar_x(i), y;

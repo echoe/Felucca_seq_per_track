@@ -627,6 +627,16 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  *   FLANG CHOR           RATE, DEPTH, FDBK: a 256-sample line per track (5.8 ms); FLANG swept 0.25 .. 5 ms (the FX
  *                        layer's squared triangle), feedback 0 .. 0.85; CHOR a sine around 3.2 ms (+-2.3 ms at DEPTH
  *                        127), feedback 0 .. 0.4. A DC blocker on the swept copy (a clipped loud input is lopsided).
+ *   GRAIN                SIZE (a grain's length, 5 .. 93 ms, IG_SIZE), PITCH (-12 .. +12 semitones, IG_RATIO), SPRAY (how far back
+ *                        in the last 186 ms a grain may start: 0 the newest sound, 127 anywhere): a granular cloud, free
+ *                        running (a Hann-windowed grain of the recent past every half a grain, two at most; the position
+ *                        of each from its count, hashed: the same every start). The track is recorded into the
+ *                        SLICER's buffer (sl_buf) while it runs, so STUT repeats nothing then (slicer.c ins_gr); GATE as
+ *                        ever. Mono, as the others: with SPREAD the side passes it by.
+ *   TAPE                 DRIVE (a tanh saturation, 1x .. 3x into it, the level made up: it compresses what is loud and stays
+ *                        itself under), WOW (the speed wandering of a worn tape: a delay of 2.7 ms moved by two slow sines
+ *                        and a flutter, up to ~35 cents; the line is FLANG / CHOR's), TONE (the two low-passes, as the
+ *                        drives'). MIX 100 % is the tape; less is the sound with its own wobbling double on it.
  * The swept ones are the pedals': their wet is (dry + swept) / 2, the notches need both, so MIX 100 % is the whole
  * effect and less a lighter one. MIX (P_IMIX) blends dry and wet linearly; MIX 0 or TYPE OFF: the track bit for bit
  * as before (nothing runs). MIX glides (2.9 ms, SL_SLOPE); a TYPE change fades the old one out, clears the state,
@@ -634,9 +644,9 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  * takes the mono sum b, as DIST does; the side passes it by.
  * Order: DIST -> INSERT -> SLICER: the insert colours the sound as DIST does; the SLICER's gate (and its STUT
  * recordings) comes after, so its edges stay sharp (no flanger feedback or phaser ringing smears them) and a STUT
- * repeats the processed sound. State in the pool, per track (ins[], 580 B each); noinline, its own loops: the audio
+ * repeats the processed sound. State in the pool, per track (ins[], ~650 B each); noinline, its own loops: the audio
  * ISR's inlined path gains one test per part (track_t ins_run) */
-enum { IT_OFF, IT_SOFT, IT_HARD, IT_FOLD, IT_FUZZ, IT_CRUSH, IT_PHASER, IT_FLANGER, IT_CHORUS, IT_N };
+enum { IT_OFF, IT_SOFT, IT_HARD, IT_FOLD, IT_FUZZ, IT_CRUSH, IT_PHASER, IT_FLANGER, IT_CHORUS, IT_GRAIN, IT_TAPE, IT_N };
 #define IL_LEN 256u                     /* FLANG / CHOR: the line, samples (a power of 2: masked) */
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};   /* CRUSH RATE */
 typedef struct {
@@ -648,6 +658,18 @@ typedef struct {
     int32_t hp, lp1, lp2, dc, hold;     /* low cut (Q8), the two low-passes, DC blocker (Q8), CRUSH's held sample */
     int32_t px[PH_ST], py[PH_ST], fb;   /* PHASR: each stage's last input and output, the fed back */
     int16_t line[IL_LEN];               /* FLANG / CHOR, at a quarter (headroom) */
+    int32_t half;                       /* GRAIN: the first sample of the recorded pair */
+    uint16_t gw, rec;                   /* GRAIN: the ring's (sl_buf) next write, the samples recorded in it (<= SL_LEN) */
+    uint8_t par;                        /* GRAIN: the pair's second sample is next */
+    uint32_t gcnt, gn;                  /* GRAIN: samples to the next grain, the grains tried since the start */
+    int32_t bc;                         /* GRAIN: the coherent start, ring samples behind the write position */
+    uint32_t ph2, ph3;                  /* TAPE: the second wow and the flutter phases (ph is the first wow) */
+    struct {                            /* GRAIN: two grains */
+        uint32_t pos, len;              /* samples into the grain, its length (44.1 kHz) */
+        uint32_t rp, inc;               /* the read position in the ring, Q16 (22.05 kHz samples); its step */
+        uint32_t ph, dph;               /* the window's phase (0 .. half a cycle of sine_i) and its step */
+        uint8_t on;
+    } g[2];
 } ins_t;
 static ins_t ins[NTRK] __attribute__((section(".pool")));
 
@@ -774,17 +796,165 @@ static __attribute__((noinline)) void ins_swept(ins_t *s, const track_t *t, int3
     }
 }
 
+/* TAPE: DRIVE g = 1x .. 3x (Q12) into tanh (softclip), the makeup 1 / sqrt(g) (Q12, per 8 steps of DRIVE) so the level moves
+ * little: a quiet sound gains up to 4.7 dB, a loud one is held down by as much. The INSERT graph draws the same curve */
+static const uint16_t IT_MK[16] = {4092, 4060, 4000, 3913, 3806, 3684, 3552, 3414, 3275, 3137, 3002, 2873, 2749, 2631, 2520, 2415};
+static inline int32_t ins_tape_shape(int32_t v, int32_t a)
+{
+    int32_t g = 4096 + ((a * a) >> 1);
+    return (softclip(((v >> 3) * g) >> 9) * (int32_t)IT_MK[(uint32_t)clamp(a, 0, 127) >> 3]) >> 12;
+}
+/* the wow's two sines (0.61 Hz, 1.37 Hz) and the flutter (6.9 Hz): phase steps per sample at 44.1 kHz */
+#define TP_WOW1 59409u
+#define TP_WOW2 133426u
+#define TP_FLUT 672002u
+
+/* TAPE: DRIVE -> the delay (2.7 ms, WOW moves it) -> TONE (two low-passes). The line holds the saturated sound (bounded: int16) */
+static __attribute__((noinline)) void ins_tape(ins_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+{
+    uint32_t i, dep = (uint32_t)clamp(t->p[P_IB], 0, 127);
+    int32_t a = clamp(t->p[P_IA], 0, 127), k = ins_lpk(t->p[P_IC]);
+    for (i = 0; i < n; i++, s->ph += TP_WOW1, s->ph2 += TP_WOW2, s->ph3 += TP_FLUT) {
+        int32_t x = b[i], y, v, r0, r1, fr, w;
+        uint32_t d;                                     /* the delay, Q16 samples: 120 +- 99 (WOW) +- 6 (flutter) */
+        s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
+        s->line[s->wp] = (int16_t)ins_tape_shape(clamp(x, -262144, 262143), a);
+        w = (osc_sine(s->ph) * 5 + osc_sine(s->ph2 + 0x40000000u) * 3) >> 3;
+        d = (uint32_t)((120 << 16) + ((w * (int32_t)dep * 50) >> 5) + ((osc_sine(s->ph3) * (int32_t)dep * 3) >> 5));
+        r0 = (int32_t)(s->wp - (d >> 16)) & (int32_t)(IL_LEN - 1u);
+        r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
+        fr = (int32_t)((d >> 1) & 0x7FFFu);
+        v = s->line[r0] + (((s->line[r1] - s->line[r0]) * fr) >> 15);
+        s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
+        y = v * 16;                                     /* TONE: two one-pole low-passes (x16: no offset left by the rounding) */
+        v = mulq16(y - s->lp1, (uint32_t)k);
+        y = v + s->lp1;
+        s->lp1 = y + v;
+        v = mulq16(y - s->lp2, (uint32_t)k);
+        y = v + s->lp2;
+        s->lp2 = y + v;
+        y = (y + 8) >> 4;
+        s->dc += ((y * 256) - s->dc) >> 9;              /* DC blocker, ~14 Hz (a lopsided loud input, saturated, shifts its mean) */
+        y -= s->dc >> 8;
+        b[i] = pf_mix(x, y, s->w);
+    }
+}
+
+/* GRAIN: PITCH -12 .. +12 semitones (P_IB in 25 even parts) as Q8 ratios of the ring's own rate (256); SIZE (P_IA in 16
+ * even parts): a grain's length in 44.1 kHz samples, 5 .. 93 ms (params.c N_ISIZE / N_IPITCH name them) */
+static const uint16_t IG_RATIO[25] = {128, 136, 144, 152, 161, 171, 181, 192, 203, 215, 228, 242, 256, 271, 287, 304, 323,
+                                      342, 362, 384, 406, 431, 456, 483, 512};
+static const uint16_t IG_SIZE[16] = {220, 267, 325, 395, 480, 583, 709, 861, 1047, 1272, 1546, 1879, 2283, 2775, 3372, 4096};
+
+/* a new grain on a free voice; 0: none free (SIZE turned down while the long ones sound: no cut of a sounding grain) or not enough
+ * recorded yet, to be tried again soon. lout its length, r its ratio (Q8), spray 0 .. 127 */
+static uint32_t ig_spawn(ins_t *s, uint32_t lout, uint32_t r, uint32_t spray)
+{
+    uint32_t h = (s->gn + 1u) * 2654435761u, lb, grow, lo, hi, back, v;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    s->gn++;
+    if (lout > (3600u << 9) / r)
+        lout = (3600u << 9) / r;                        /* (a fast grain reads more of the ring than a long one has) */
+    lb = lout * r >> 9;                                 /* the ring samples it reads (at half the output rate, times the ratio) */
+    grow = lout / 2u > lb ? lout / 2u - lb : 0u;        /* its start, this far behind the write position. The gap moves by (what */
+    lo = lb + 96u;                                      /* the ring gains - what the grain reads) over the grain: it shrinks for a */
+    hi = SL_LEN - grow - 64u;                           /* ratio above 1 (so 96 samples more than it reads), it grows for one below */
+    if (hi + grow > s->rec)                             /* (so it stays under the ring's length by that much): the whole grain is */
+        hi = s->rec > grow ? s->rec - grow : 0u;        /* in the past and none of it overwritten; and only what is recorded */
+    if (hi <= lo || (s->g[0].on && s->g[1].on))
+        return 0;
+    {   /* the start moves on from grain to grain as the pitch needs: over the spacing (lout / 2) the ring gains lout / 4 and a grain reads
+         * lout / 4 * r / 256 of it, so the next one starts (lout / 4) (256 - r) / 256 nearer (r > 256) or farther (r < 256): the grains
+         * join in phase, a pitch shifter. The span it moves in wraps (a warble every few grains; at 0 st it stands still, a plain
+         * delay of the newest sound). SPRAY then scatters each start in the span, from the coherent one: 0 is none */
+        int32_t range = (int32_t)(hi - lo) + 1, off = (s->bc - (int32_t)lo + (((int32_t)lout * (256 - (int32_t)r)) >> 10)) % range;
+        uint32_t rnd = spray ? h % ((hi - lo) * spray / 127u + 1u) : 0u;
+        if (off < 0)
+            off += range;
+        s->bc = (int32_t)lo + off;
+        back = lo + ((uint32_t)off + rnd) % (uint32_t)range;
+    }
+    v = !s->g[0].on ? 0u : 1u;
+    s->g[v].pos = 0;
+    s->g[v].len = lout;
+    s->g[v].rp = ((uint32_t)(s->gw - back) & (SL_LEN - 1u)) << 16;
+    s->g[v].inc = r << 7;
+    s->g[v].ph = 0;
+    s->g[v].dph = 0x80000000u / lout;
+    s->g[v].on = 1;
+    return 1;
+}
+
+/* GRAIN on b: record into the ring (the SLICER's buffer), start a grain every half a grain, play them, mix. The grains replace
+ * the dry sound as far as they are heard (a window's weight), so the start of a cloud and its MIX fade keep the track playing */
+static __attribute__((noinline)) void ins_grain(ins_t *s, const track_t *t, int16_t *buf, int32_t *b, uint32_t n, int32_t tw)
+{
+    uint32_t i, k, lout = IG_SIZE[clamp(t->p[P_IA], 0, 127) >> 3], spray = (uint32_t)clamp(t->p[P_IC], 0, 127);
+    uint32_t r = IG_RATIO[(uint32_t)clamp(t->p[P_IB], 0, 127) * 25u >> 7];
+    if (sl_lent)
+        s->rec = 0;                                     /* perform.c has the buffer: nothing in it is ours, a start waits */
+    for (i = 0; i < n; i++) {
+        int32_t x = b[i], g = 0, ge = 0;
+        s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
+        if (!sl_lent) {                                 /* the ring: 2:1, the pair's mean; Q15 >> 2 (as STUT's) */
+            if (s->par) {
+                buf[s->gw] = (int16_t)clamp((s->half + x) >> 3, -32768, 32767);
+                s->gw = (uint16_t)((s->gw + 1u) & (SL_LEN - 1u));
+                if (s->rec < SL_LEN)
+                    s->rec++;
+            } else {
+                s->half = x;
+            }
+            s->par ^= 1u;
+            if (!s->gcnt) {
+                s->gcnt = ig_spawn(s, lout, r, spray) ? lout / 2u : 48u;   /* (a try again in 1 ms) */
+            } else {
+                s->gcnt--;
+            }
+        }
+        for (k = 0; k < 2u; k++) {
+            int32_t rd, w, sn;
+            uint32_t i0;
+            if (!s->g[k].on)
+                continue;
+            i0 = s->g[k].rp >> 16;
+            rd = buf[i0 & (SL_LEN - 1u)];
+            rd += ((buf[(i0 + 1u) & (SL_LEN - 1u)] - rd) * (int32_t)((s->g[k].rp >> 1) & 0x7FFFu)) >> 15;
+            sn = sine_i(s->g[k].ph);                    /* a Hann window: sin^2 over the grain */
+            w = (sn * sn) >> 15;
+            g += (rd * 4 * w) >> 15;
+            ge += w;
+            s->g[k].rp += s->g[k].inc;
+            if ((s->g[k].rp >> 16) >= SL_LEN)
+                s->g[k].rp -= (uint32_t)SL_LEN << 16;
+            s->g[k].ph += s->g[k].dph;
+            if (++s->g[k].pos >= s->g[k].len)
+                s->g[k].on = 0;
+        }
+        if (ge > 32767) {                               /* two windows that do not sum to 1 (SIZE turned while they sound): */
+            g = (int32_t)((int64_t)g * 32767 / ge);     /* the cloud at the level of one */
+            ge = 32767;
+        }
+        ge = (int32_t)(((int64_t)ge * s->w) >> 15);      /* how far the grains replace the dry sound */
+        b[i] = x - mulq16(x, (uint32_t)ge << 1) + mulq16(g, (uint32_t)s->w << 1);
+    }
+}
+
 /* the INSERT at rest at once (mix_part: TYPE turned OFF while the part was silent, its fade never ran) */
 static __attribute__((noinline)) void ins_rest(track_t *t)
 {
     memset(&ins[(uint32_t)(t - trk) % NTRK], 0, sizeof(ins_t));
+    ins_gr[(uint32_t)(t - trk) % NTRK] = 0;
     t->ins_run = 0;
 }
 
 /* the track's INSERT on its block b (mix_part, mix_spread): nothing while TYPE is OFF or MIX is 0 and faded */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
-    ins_t *s = &ins[(uint32_t)(t - trk) % NTRK];
+    uint32_t k = (uint32_t)(t - trk) % NTRK;
+    ins_t *s = &ins[k];
     int32_t ty = clamp(t->p[P_ITYPE], 0, IT_N - 1), tw;
     if (s->type != ty && !s->w)                         /* faded out: the new type from rest */
         s->type = (uint8_t)ty;
@@ -792,16 +962,22 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
     if (!s->w) {
         if (!tw) {
             t->ins_run = 0;
+            ins_gr[k] = 0;                              /* (the SLICER has its buffer back) */
             return;                                     /* dry: bit for bit */
         }
         memset(s, 0, sizeof *s);                        /* starting: no stale line or filter */
         s->type = (uint8_t)ty;
     }
-    if (s->type >= IT_PHASER)
+    if (s->type == IT_GRAIN)
+        ins_grain(s, t, sl_buf[k], b, n, tw);
+    else if (s->type == IT_TAPE)
+        ins_tape(s, t, b, n, tw);
+    else if (s->type >= IT_PHASER)
         ins_swept(s, t, b, n, tw);
     else
         ins_drive(s, t, b, n, tw);
     t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
+    ins_gr[k] = s->type == IT_GRAIN && t->ins_run;      /* (slicer.c: STUT leaves the buffer to the grains) */
 }
 
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
@@ -902,8 +1078,9 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
 #else
     if (track_render(t, b, n))
 #endif
-        t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
-                                                         * voice (the INSERT's: 46 ms, a flanger's feedback) */
+        t->tail = t->p[P_ITYPE] == IT_GRAIN ? 255 : t->p[P_ITYPE] ? 64 : 16;   /* blocks of DIST / INSERT state to run out
+                                                         * after the last voice (the INSERT's: 46 ms, a flanger's
+                                                         * feedback; GRAIN: 184 ms, the ring's 186 ms of what it heard) */
     else if ((!t->tail || !(t->p[P_DIST] | t->p[P_ITYPE]) || !--t->tail) && !slicer_busy(t)) {
         slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
         if (t->ins_run && !t->p[P_ITYPE])

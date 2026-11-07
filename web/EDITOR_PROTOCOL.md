@@ -725,11 +725,15 @@ Five track parameters before the engine parameters, ahead of 1.5's TYPE and ESYN
 
 | id | label | values |
 | --- | --- | --- |
-| 96 | INSRT | enum (append-only): 0 OFF, 1 SOFT, 2 HARD, 3 FOLD, 4 FUZZ, 5 CRUSH, 6 PHASR, 7 FLANG, 8 CHOR; default OFF |
-| 97 | INS A | 0..127, default 64: SOFT .. FUZZ DRIVE (PCT), CRUSH BITS (1 + v / 8: 1..16), PHASR / FLANG / CHOR RATE (LFOHZ) |
-| 98 | INS B | 0..127, default 96: SOFT .. FUZZ TONE (CUTOFF), CRUSH RATE (v / 8 picks 689 919 1.1k 1.4k 1.8k 2.2k 2.8k 3.7k 4.4k 5.5k 7.4k 8.8k 11k 15k 22k 44k Hz), the swept ones DEPTH (PCT) |
-| 99 | INS C | 0..127, default 96: SOFT .. FUZZ LEVEL (DB, as LVL: 112 = 0 dB), CRUSH LPF (CUTOFF), the swept ones FDBK (PCT) |
+| 96 | INSRT | enum (append-only): 0 OFF, 1 SOFT, 2 HARD, 3 FOLD, 4 FUZZ, 5 CRUSH, 6 PHASR, 7 FLANG, 8 CHOR, 9 GRAIN, 10 TAPE (Argo 1.7.0); default OFF |
+| 97 | INS A | 0..127, default 64: SOFT .. FUZZ DRIVE (PCT), CRUSH BITS (1 + v / 8: 1..16), PHASR / FLANG / CHOR RATE (LFOHZ), GRAIN SIZE (v / 8 picks 5 6 7 9 11 13 16 20 24 29 35 43 52 63 76 93 ms), TAPE DRIVE (PCT: tanh saturation 1x .. 3x, the level made up) |
+| 98 | INS B | 0..127, default 96: SOFT .. FUZZ TONE (CUTOFF), CRUSH RATE (v / 8 picks 689 919 1.1k 1.4k 1.8k 2.2k 2.8k 3.7k 4.4k 5.5k 7.4k 8.8k 11k 15k 22k 44k Hz), the swept ones DEPTH (PCT), GRAIN PITCH (v * 25 / 128 picks -12 .. +12 semitones; 64 is 0), TAPE WOW (PCT: the pitch wander of a worn tape, up to ~35 cents) |
+| 99 | INS C | 0..127, default 96: SOFT .. FUZZ LEVEL (DB, as LVL: 112 = 0 dB), CRUSH LPF (CUTOFF), the swept ones FDBK (PCT), GRAIN SPRAY (PCT: how far back in the last 186 ms a grain may start; 0 the newest sound), TAPE TONE (CUTOFF: the two low-passes) |
 | 100 | MIX | 0..127 (PCT), default 127: dry / wet; 0 = the dry track, bit for bit |
+
+The SLICER's `SLCR` (45) has three modes since the Argo 1.7.0 build, 0 OFF, 1 GATE, 2 STUT: its former 3, GRAIN, is the
+INSERT's TYPE 9 now (it records into the SLICER's buffer while it runs, so STUT repeats nothing then). A stored 3 loads as
+OFF (a project, a backup, motion), not as STUT.
 
 `DESC` gives the generic labels and formats above (`INS A` .. `INS C`, PCT): the meaning of 97..99 depends on 96, as
 the engine parameters' on the engine; an editor that shows them by TYPE uses the table (the device does:
